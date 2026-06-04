@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  cookbook-app:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - API_KEY=${API_KEY:-}
+      - MONGO_URL=mongodb://localhost:27017
+      - DB_NAME=cookbook_database
+      - CORS_ORIGINS=*
+    restart: unless-stopped
