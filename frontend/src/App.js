@@ -34,6 +34,7 @@ function HomePage() {
   const [matchedRecipes, setMatchedRecipes] = useState([]);
   const [recentlyUsedIngredients, setRecentlyUsedIngredients] = useState([]);
   const [editIngredientsMode, setEditIngredientsMode] = useState(false);
+  const [deletingIngredientId, setDeletingIngredientId] = useState(null);
   const [filters, setFilters] = useState({
     minRating: 0,
     maxCalories: "",
@@ -531,34 +532,64 @@ function HomePage() {
                 })
                 .map(ing => (
                   <div key={ing.id} className="ingredient-checkbox-wrapper">
-                    <label className="ingredient-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={selectedIngredients.includes(ing.id)}
-                        onChange={() => toggleIngredientSelection(ing.id)}
-                      />
-                      <span>{ing.name}</span>
-                    </label>
-                    {editIngredientsMode && (
-                      <button
-                        onClick={async (e) => {
-                          e.preventDefault();
-                          if (window.confirm(`Zutat "${ing.name}" wirklich löschen?`)) {
-                            try {
-                              await axios.delete(`${API}/ingredients/${ing.id}`);
-                              setIngredients(ingredients.filter(i => i.id !== ing.id));
-                              setSelectedIngredients(selectedIngredients.filter(id => id !== ing.id));
-                              toast.success("Zutat gelöscht");
-                            } catch (error) {
-                              toast.error("Fehler beim Löschen");
-                            }
-                          }
-                        }}
-                        className="btn-delete-ingredient"
-                        title="Zutat löschen"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    {deletingIngredientId === ing.id ? (
+                      <div className="ingredient-delete-confirm">
+                        <span className="ingredient-delete-question">"{ing.name}" löschen?</span>
+                        <div className="ingredient-delete-buttons">
+                          <button
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              try {
+                                await axios.delete(`${API}/ingredients/${ing.id}`);
+                                setIngredients(ingredients.filter(i => i.id !== ing.id));
+                                setSelectedIngredients(selectedIngredients.filter(id => id !== ing.id));
+                                toast.success("Zutat gelöscht");
+                                setDeletingIngredientId(null);
+                              } catch (error) {
+                                toast.error("Fehler beim Löschen");
+                                setDeletingIngredientId(null);
+                              }
+                            }}
+                            className="btn-ingredient-confirm-yes"
+                            title="Ja, löschen"
+                          >
+                            Ja
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setDeletingIngredientId(null);
+                            }}
+                            className="btn-ingredient-confirm-no"
+                            title="Abbrechen"
+                          >
+                            Nein
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <label className="ingredient-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedIngredients.includes(ing.id)}
+                            onChange={() => toggleIngredientSelection(ing.id)}
+                          />
+                          <span>{ing.name}</span>
+                        </label>
+                        {editIngredientsMode && (
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setDeletingIngredientId(ing.id);
+                            }}
+                            className="btn-delete-ingredient"
+                            title="Zutat löschen"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}
@@ -981,9 +1012,9 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
         {showDeleteConfirm ? (
           <>
             <div className="recipe-divider"></div>
-            <div className="delete-confirm-overlay" onClick={(e) => e.stopPropagation()}>
-              <p className="delete-confirm-question">Löschen?</p>
-              <div className="delete-confirm-buttons">
+            <div className="delete-confirm-overlay-v2" onClick={(e) => e.stopPropagation()}>
+              <p className="delete-confirm-question-v2">Löschen?</p>
+              <div className="delete-confirm-buttons-v2">
                 <button 
                   onClick={(e) => {
                     e.stopPropagation();
@@ -991,7 +1022,7 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
                     onDelete(recipe);
                     setShowDeleteConfirm(false);
                   }}
-                  className="btn-delete-confirm-yes"
+                  className="btn-delete-confirm-yes-v2"
                 >
                   Ja, löschen
                 </button>
@@ -1001,7 +1032,7 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
                     e.preventDefault();
                     setShowDeleteConfirm(false);
                   }}
-                  className="btn-delete-confirm-no"
+                  className="btn-delete-confirm-no-v2"
                 >
                   Abbrechen
                 </button>
