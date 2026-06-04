@@ -35,8 +35,6 @@ function HomePage() {
   const [filters, setFilters] = useState({
     minRating: 0,
     maxCalories: "",
-    minCalories: "",
-    maxProtein: "",
     minProtein: ""
   });
   const [newIngredient, setNewIngredient] = useState("");
@@ -94,20 +92,12 @@ function HomePage() {
       filtered = filtered.filter(r => r.rating >= filters.minRating);
     }
 
-    if (filters.minCalories) {
-      filtered = filtered.filter(r => r.calories >= parseInt(filters.minCalories));
-    }
-
     if (filters.maxCalories) {
       filtered = filtered.filter(r => r.calories <= parseInt(filters.maxCalories));
     }
 
     if (filters.minProtein) {
       filtered = filtered.filter(r => r.protein >= parseInt(filters.minProtein));
-    }
-
-    if (filters.maxProtein) {
-      filtered = filtered.filter(r => r.protein <= parseInt(filters.maxProtein));
     }
 
     setFilteredRecipes(filtered);
@@ -394,49 +384,27 @@ function HomePage() {
             </div>
 
             <div className="filter-group">
-              <label className="filter-label">Kalorien</label>
-              <div className="filter-range">
-                <input
-                  type="number"
-                  placeholder="Min"
-                  value={filters.minCalories}
-                  onChange={(e) => setFilters({...filters, minCalories: e.target.value})}
-                  className="filter-input"
-                  data-testid="min-calories-input"
-                />
-                <span>-</span>
-                <input
-                  type="number"
-                  placeholder="Max"
-                  value={filters.maxCalories}
-                  onChange={(e) => setFilters({...filters, maxCalories: e.target.value})}
-                  className="filter-input"
-                  data-testid="max-calories-input"
-                />
-              </div>
+              <label className="filter-label">Max. Kalorien</label>
+              <input
+                type="number"
+                placeholder="z.B. 500"
+                value={filters.maxCalories}
+                onChange={(e) => setFilters({...filters, maxCalories: e.target.value})}
+                className="filter-input"
+                data-testid="max-calories-input"
+              />
             </div>
 
             <div className="filter-group">
-              <label className="filter-label">Protein (g)</label>
-              <div className="filter-range">
-                <input
-                  type="number"
-                  placeholder="Min"
-                  value={filters.minProtein}
-                  onChange={(e) => setFilters({...filters, minProtein: e.target.value})}
-                  className="filter-input"
-                  data-testid="min-protein-input"
-                />
-                <span>-</span>
-                <input
-                  type="number"
-                  placeholder="Max"
-                  value={filters.maxProtein}
-                  onChange={(e) => setFilters({...filters, maxProtein: e.target.value})}
-                  className="filter-input"
-                  data-testid="max-protein-input"
-                />
-              </div>
+              <label className="filter-label">Min. Protein (g)</label>
+              <input
+                type="number"
+                placeholder="z.B. 20"
+                value={filters.minProtein}
+                onChange={(e) => setFilters({...filters, minProtein: e.target.value})}
+                className="filter-input"
+                data-testid="min-protein-input"
+              />
             </div>
           </div>
 

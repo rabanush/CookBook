@@ -14,7 +14,7 @@ import requests
 import base64
 import asyncio
 from datetime import datetime, timezone
-from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone, ImageContent
 from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
 
 ROOT_DIR = Path(__file__).parent
@@ -223,10 +223,8 @@ async def create_recipe(recipe: RecipeCreate):
 @api_router.get("/recipes", response_model=List[Recipe])
 async def get_recipes(
     search: Optional[str] = None,
-    min_calories: Optional[int] = None,
     max_calories: Optional[int] = None,
     min_protein: Optional[int] = None,
-    max_protein: Optional[int] = None,
     min_rating: Optional[int] = None,
     ingredient_ids: Optional[str] = None
 ):
@@ -235,21 +233,11 @@ async def get_recipes(
     if search:
         query["name"] = {"$regex": search, "$options": "i"}
     
-    if min_calories is not None:
-        query["calories"] = query.get("calories", {})
-        query["calories"]["$gte"] = min_calories
-    
     if max_calories is not None:
-        query["calories"] = query.get("calories", {})
-        query["calories"]["$lte"] = max_calories
+        query["calories"] = {"$lte": max_calories}
     
     if min_protein is not None:
-        query["protein"] = query.get("protein", {})
-        query["protein"]["$gte"] = min_protein
-    
-    if max_protein is not None:
-        query["protein"] = query.get("protein", {})
-        query["protein"]["$lte"] = max_protein
+        query["protein"] = {"$gte": min_protein}
     
     if min_rating is not None:
         query["rating"] = {"$gte": min_rating}
@@ -392,25 +380,27 @@ async def generate_instructions(request: GenerateInstructionsRequest):
         ing_text = ", ".join([f"{ing['amount']} {ing['name']}" if ing.get('amount') else ing['name'] 
                               for ing in request.ingredients])
         
-        prompt = f"""Erstelle eine detaillierte, deutschsprachige Kochanleitung für das Rezept "{request.recipe_name}" mit folgenden Zutaten: {ing_text}.
+        prompt = f"""Du schreibst für ein altes, handgeschriebenes Familien-Kochbuch. Erstelle eine warmherzige, persönliche Kochanleitung für "{request.recipe_name}" mit den Zutaten: {ing_text}.
 
-Die Anleitung soll:
-- Schritt-für-Schritt formuliert sein
-- Klar und einfach verständlich sein
-- Kochzeiten und Temperaturen angeben
-- Praktische Tipps enthalten
+Schreibe im Stil eines traditionellen Kochbuchs:
+- Verwende eine persönliche, einladende Sprache ("Man nehme...", "Dann rühre man...")
+- Gib Schritt-für-Schritt Anweisungen
+- Füge praktische Tipps und kleine Geheimnisse hinzu
+- Erwähne Kochzeiten und Temperaturen
+- Beende mit einem herzlichen Tipp zum Servieren
 
-Formatiere die Anleitung in Absätze, nicht als nummerierte Liste."""
+Schreibe als fortlaufenden Text in 3-4 Absätzen, nicht als nummerierte Liste."""
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=str(uuid.uuid4()),
-            system_message="Du bist ein erfahrener Koch und schreibst präzise Kochanleitungen auf Deutsch."
-        ).with_model("openai", "gpt-5.2")
+            system_message="Du bist eine erfahrene Großmutter, die ihre Lieblingsrezepte in ein altes Familienkochbuch schreibt. Deine Anleitungen sind warm, persönlich und voller praktischer Weisheiten."
+        ).with_model("gemini", "gemini-3-flash-preview")
         
         # Use non-streaming for this endpoint
         result = await chat.send_message(UserMessage(text=prompt))
-        instructions = result.content
+        # Gemini returns string directly
+        instructions = result if isinstance(result, str) else result.content
         
         return {"instructions": instructions}
         
@@ -425,23 +415,35 @@ async def generate_recipe_image(request: GenerateImageRequest):
         raise HTTPException(status_code=500, detail="AI-Funktion nicht konfiguriert")
     
     try:
-        image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
+        # Create a vintage-style prompt that fits the cookbook aesthetic
+        prompt = f"""Erstelle ein Bild von {request.recipe_name} im Stil eines alten Familienkochbuchs. 
+
+Das Bild soll:
+- Warm und einladend wirken
+- Natürliches, weiches Licht haben
+- Auf einer rustikalen Holzoberfläche oder vintage Tischdecke präsentiert sein
+- Einen leicht nostalgischen, zeitlosen Look haben
+- Das Gericht appetitlich und hausgemacht zeigen
+- Erdige, warme Farbtöne bevorzugen (Beigetöne, warmes Braun, sanftes Gelb)
+
+Stil: Professional food photography with vintage aesthetic, soft natural lighting, rustic presentation, warm tones, homemade comfort food look"""
+
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=str(uuid.uuid4()),
+            system_message="You are an expert food photographer specializing in vintage, nostalgic cookbook imagery."
+        ).with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
         
-        prompt = f"Professional food photography of {request.recipe_name}, appetizing plating, natural lighting, high quality, detailed"
-        
-        images = await image_gen.generate_images(
-            prompt=prompt,
-            model="gpt-image-1",
-            number_of_images=1
-        )
+        # Generate image
+        text_response, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
         
         if not images or len(images) == 0:
             raise HTTPException(status_code=500, detail="Kein Bild generiert")
         
-        # Convert to base64
-        image_base64 = base64.b64encode(images[0]).decode('utf-8')
+        # Get the first image (already base64 encoded from Gemini)
+        image_base64 = images[0]['data']
         
-        return {"image_base64": image_base64, "content_type": "image/png"}
+        return {"image_base64": image_base64, "content_type": images[0].get('mime_type', 'image/png')}
         
     except Exception as e:
         logging.error(f"Error generating image: {e}")
