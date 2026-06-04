@@ -396,12 +396,17 @@ AUSNAHMEN (darfst du immer verwenden, auch wenn nicht aufgelistet):
 
 WICHTIG ZU ÖL: Sage explizit WELCHES Öl verwendet werden soll (Olivenöl ODER Sonnenblumenöl). Beide sind vorhanden.
 
+FEHLENDE ESSENTIELLE ZUTATEN:
+Prüfe, ob für dieses Gericht "{request.recipe_name}" eine ESSENTIELLE Hauptzutat fehlt (z.B. Nudeln bei Spaghetti, Reis bei Risotto, Brot bei Sandwich, Fleisch bei Schnitzel, Eier bei Omelette, etc.).
+Wenn eine solche Zutat fehlt, beginne die Anleitung mit:
+"⚠️ HINWEIS: Für dieses Gericht wird [ZUTAT] benötigt, die nicht in der Zutatenliste aufgeführt ist."
+
 Anforderungen:
 - Kurze, einfache Sätze (max. 15 Wörter pro Satz)
 - Keine Schachtelsätze oder Fachbegriffe
 - Direkte Anweisungen im Aktiv
 - Genaue Kochzeiten und Temperaturen
-- Erwähne KEINE zusätzlichen Zutaten außer den Ausnahmen
+- Erwähne KEINE zusätzlichen Zutaten außer den Ausnahmen und dem Hinweis zu fehlenden Hauptzutaten
 - 2-3 kurze Absätze
 
 Beispiel guter Stil:
@@ -412,7 +417,7 @@ Schreibe ohne Nummerierung als fortlaufenden Text."""
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=str(uuid.uuid4()),
-            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die genannten Zutaten plus Wasser, alle Gewürze und Olivenöl/Sonnenblumenöl (gib an welches)."
+            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die genannten Zutaten plus Wasser, alle Gewürze und Olivenöl/Sonnenblumenöl (gib an welches). Wenn eine essentielle Hauptzutat für das Gericht fehlt, weise am Anfang darauf hin."
         ).with_model("gemini", "gemini-3-flash-preview")
         
         # Use non-streaming for this endpoint

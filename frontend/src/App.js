@@ -3,7 +3,7 @@ import "@/App.css";
 import axios from "axios";
 import { Plus, Search, Star, ChefHat, X, Edit2, Trash2, Filter, Sparkles, Upload, Camera, ArrowLeft, Shuffle } from "lucide-react";
 import { toast } from "sonner";
-import { BrowserRouter, Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate, useParams, Link, useLocation } from "react-router-dom";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -308,10 +308,25 @@ function HomePage() {
     
     try {
       const response = await axios.post(`${API}/ingredients`, { name: newIngredient });
-      setIngredients([...ingredients, response.data]);
+      const newIng = response.data;
+      setIngredients([...ingredients, newIng]);
+      
+      // Automatically select the new ingredient
+      setFormData({
+        ...formData,
+        ingredient_ids: [...formData.ingredient_ids, newIng.id],
+        ingredient_amounts: [...formData.ingredient_amounts, ""]
+      });
+      
+      // Add to recently used (move to top)
+      setRecentlyUsedIngredients(prev => {
+        const filtered = prev.filter(id => id !== newIng.id);
+        return [newIng.id, ...filtered].slice(0, 20);
+      });
+      
       setNewIngredient("");
       setFilteredIngredients([]);
-      toast.success("Zutat hinzugefügt");
+      toast.success(`${newIng.name} hinzugefügt und ausgewählt`);
     } catch (error) {
       toast.error("Fehler beim Hinzufügen der Zutat");
     }
@@ -358,6 +373,7 @@ function HomePage() {
     const currentAmounts = formData.ingredient_amounts;
     
     if (currentIds.includes(ingId)) {
+      // Deselecting - remove from list
       const idx = currentIds.indexOf(ingId);
       setFormData({
         ...formData,
@@ -365,10 +381,17 @@ function HomePage() {
         ingredient_amounts: currentAmounts.filter((_, i) => i !== idx)
       });
     } else {
+      // Selecting - add to list and move to top of recently used
       setFormData({
         ...formData,
         ingredient_ids: [...currentIds, ingId],
         ingredient_amounts: [...currentAmounts, ""]
+      });
+      
+      // Add to recently used (move to top)
+      setRecentlyUsedIngredients(prev => {
+        const filtered = prev.filter(id => id !== ingId);
+        return [ingId, ...filtered].slice(0, 20);
       });
     }
   };
@@ -762,13 +785,22 @@ function RecipeForm({
             <div className="ingredient-tags">
               {ingredients
                 .sort((a, b) => {
-                  // Sort: recently used first, then alphabetically
+                  // Priority 1: Selected ingredients first
+                  const aSelected = formData.ingredient_ids.includes(a.id);
+                  const bSelected = formData.ingredient_ids.includes(b.id);
+                  
+                  if (aSelected && !bSelected) return -1;
+                  if (!aSelected && bSelected) return 1;
+                  
+                  // Priority 2: Recently used (among non-selected)
                   const aRecent = recentlyUsedIngredients.indexOf(a.id);
                   const bRecent = recentlyUsedIngredients.indexOf(b.id);
                   
                   if (aRecent !== -1 && bRecent !== -1) return aRecent - bRecent;
                   if (aRecent !== -1) return -1;
                   if (bRecent !== -1) return 1;
+                  
+                  // Priority 3: Alphabetically
                   return a.name.localeCompare(b.name);
                 })
                 .map((ing, idx) => {
@@ -905,7 +937,11 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
               <Edit2 size={16} />
             </button>
             <button 
-              onClick={(e) => onDelete(recipe.id, e)} 
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                onDelete(recipe.id, e); 
+              }} 
               className="btn-icon" 
               data-testid="delete-recipe-btn"
             >
@@ -973,13 +1009,14 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
 function RecipeDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [recipe, setRecipe] = useState(null);
   const [checkedIngredients, setCheckedIngredients] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchRecipe();
-  }, [id]);
+  }, [id, location.key]);
 
   const fetchRecipe = async () => {
     try {
