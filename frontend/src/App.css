@@ -1100,6 +1100,65 @@
   color: white;
 }
 
+
+
+/* Inline Delete Confirmation */
+.delete-confirm-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.delete-confirm-text {
+  font-size: 0.9rem;
+  color: #e74c3c;
+  font-family: 'Special Elite', monospace;
+  font-weight: bold;
+}
+
+.btn-confirm-yes,
+.btn-confirm-no {
+  padding: 0.4rem 0.8rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Special Elite', monospace;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.btn-confirm-yes {
+  background: #e74c3c;
+  color: white;
+}
+
+.btn-confirm-yes:hover {
+  background: #c0392b;
+  transform: scale(1.05);
+}
+
+.btn-confirm-no {
+  background: #95a5a6;
+  color: white;
+}
+
+.btn-confirm-no:hover {
+  background: #7f8c8d;
+  transform: scale(1.05);
+}
+
 .modal-actions .btn-secondary:hover {
   background: #7f8c8d;
   transform: translateY(-1px);

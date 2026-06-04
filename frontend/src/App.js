@@ -40,7 +40,6 @@ function HomePage() {
   });
   const [newIngredient, setNewIngredient] = useState("");
   const [filteredIngredients, setFilteredIngredients] = useState([]);
-  const [deleteConfirmation, setDeleteConfirmation] = useState({ show: false, recipeId: null, recipeName: "" });
   const [formData, setFormData] = useState({
     name: "",
     calories: "",
@@ -255,34 +254,19 @@ function HomePage() {
     // Note: Existing recipe image (from image_url) will be preserved unless replaced
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (recipe) => {
     try {
       // Backend löschen
-      await axios.delete(`${API}/recipes/${id}`);
+      await axios.delete(`${API}/recipes/${recipe.id}`);
       
       // Neu laden vom Server
       await fetchRecipes();
-      
-      // Dialog schließen
-      setDeleteConfirmation({ show: false, recipeId: null, recipeName: "" });
       
       toast.success("Rezept gelöscht");
     } catch (error) {
       console.error("Delete error:", error);
       toast.error("Fehler beim Löschen");
     }
-  };
-  
-  const confirmDelete = (recipe) => {
-    setDeleteConfirmation({ 
-      show: true, 
-      recipeId: recipe.id,
-      recipeName: recipe.name 
-    });
-  };
-  
-  const cancelDelete = () => {
-    setDeleteConfirmation({ show: false, recipeId: null, recipeName: "" });
   };
 
   const handleCooked = async (recipe) => {
@@ -606,7 +590,7 @@ function HomePage() {
                     key={recipe.id} 
                     recipe={recipe} 
                     onEdit={handleEdit}
-                    onDelete={confirmDelete}
+                    onDelete={handleDelete}
                     onCooked={handleCooked}
                     onRate={handleRating}
                     showMissingIngredients={true}
@@ -626,7 +610,7 @@ function HomePage() {
                     key={recipe.id} 
                     recipe={recipe} 
                     onEdit={handleEdit}
-                    onDelete={confirmDelete}
+                    onDelete={handleDelete}
                     onCooked={handleCooked}
                     onRate={handleRating}
                     navigate={navigate}
@@ -642,24 +626,6 @@ function HomePage() {
           )}
         </main>
       </div>
-      
-      {/* Bestätigungs-Dialog */}
-      {deleteConfirmation.show && (
-        <div className="modal-overlay" onClick={cancelDelete}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Rezept löschen?</h3>
-            <p>Möchtest du "{deleteConfirmation.recipeName}" wirklich löschen?</p>
-            <div className="modal-actions">
-              <button onClick={() => handleDelete(deleteConfirmation.recipeId)} className="btn-primary">
-                Ja, löschen
-              </button>
-              <button onClick={cancelDelete} className="btn-secondary">
-                Abbrechen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -928,6 +894,8 @@ function RecipeForm({
 
 // ============ RECIPE CARD COMPONENT ============
 function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIngredients, navigate }) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
   const hasImage = recipe.image_url;
   // Use image_url hash as cache key - changes only when image changes
   const imageKey = hasImage ? recipe.image_url.split('/').pop() : '';
@@ -955,28 +923,57 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
         <div className="recipe-card-header">
           <h3 className="recipe-name" data-testid="recipe-name">{recipe.name}</h3>
           <div className="recipe-actions">
-            <button 
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                e.preventDefault();
-                onEdit(recipe); 
-              }} 
-              className="btn-icon" 
-              data-testid="edit-recipe-btn"
-            >
-              <Edit2 size={16} />
-            </button>
-            <button 
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                e.preventDefault();
-                onDelete(recipe); 
-              }} 
-              className="btn-icon" 
-              data-testid="delete-recipe-btn"
-            >
-              <Trash2 size={16} />
-            </button>
+            {!showDeleteConfirm ? (
+              <>
+                <button 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    e.preventDefault();
+                    onEdit(recipe); 
+                  }} 
+                  className="btn-icon" 
+                  data-testid="edit-recipe-btn"
+                >
+                  <Edit2 size={16} />
+                </button>
+                <button 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    e.preventDefault();
+                    setShowDeleteConfirm(true);
+                  }} 
+                  className="btn-icon" 
+                  data-testid="delete-recipe-btn"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </>
+            ) : (
+              <div className="delete-confirm-inline" onClick={(e) => e.stopPropagation()}>
+                <span className="delete-confirm-text">Löschen?</span>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onDelete(recipe);
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="btn-confirm-yes"
+                >
+                  Ja
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="btn-confirm-no"
+                >
+                  Nein
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
