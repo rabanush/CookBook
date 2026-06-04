@@ -905,8 +905,8 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
     <div 
       className="recipe-card" 
       data-testid={`recipe-card-${recipe.id}`}
-      onClick={() => navigate(`/recipe/${recipe.id}`)}
-      style={{ cursor: 'pointer' }}
+      onClick={() => !showDeleteConfirm && navigate(`/recipe/${recipe.id}`)}
+      style={{ cursor: showDeleteConfirm ? 'default' : 'pointer' }}
     >
       <div className="recipe-card-image">
         {hasImage ? (
@@ -923,61 +923,61 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
         <div className="recipe-card-header">
           <h3 className="recipe-name" data-testid="recipe-name">{recipe.name}</h3>
           <div className="recipe-actions">
-            {!showDeleteConfirm ? (
-              <>
-                <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    e.preventDefault();
-                    onEdit(recipe); 
-                  }} 
-                  className="btn-icon" 
-                  data-testid="edit-recipe-btn"
-                >
-                  <Edit2 size={16} />
-                </button>
-                <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    e.preventDefault();
-                    setShowDeleteConfirm(true);
-                  }} 
-                  className="btn-icon" 
-                  data-testid="delete-recipe-btn"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </>
-            ) : (
-              <div className="delete-confirm-inline" onClick={(e) => e.stopPropagation()}>
-                <span className="delete-confirm-text">Löschen?</span>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onDelete(recipe);
-                    setShowDeleteConfirm(false);
-                  }}
-                  className="btn-confirm-yes"
-                >
-                  Ja
-                </button>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    setShowDeleteConfirm(false);
-                  }}
-                  className="btn-confirm-no"
-                >
-                  Nein
-                </button>
-              </div>
-            )}
+            <button 
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                onEdit(recipe); 
+              }} 
+              className="btn-icon" 
+              data-testid="edit-recipe-btn"
+            >
+              <Edit2 size={16} />
+            </button>
+            <button 
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                setShowDeleteConfirm(true);
+              }} 
+              className="btn-icon" 
+              data-testid="delete-recipe-btn"
+            >
+              <Trash2 size={16} />
+            </button>
           </div>
         </div>
 
-        <div className="recipe-divider"></div>
+        {showDeleteConfirm ? (
+          <div className="delete-confirm-overlay" onClick={(e) => e.stopPropagation()}>
+            <p className="delete-confirm-question">Rezept wirklich löschen?</p>
+            <div className="delete-confirm-buttons">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onDelete(recipe);
+                  setShowDeleteConfirm(false);
+                }}
+                className="btn-delete-confirm-yes"
+              >
+                Ja, löschen
+              </button>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setShowDeleteConfirm(false);
+                }}
+                className="btn-delete-confirm-no"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="recipe-divider"></div>
 
         <div className="recipe-nutrients" data-testid="recipe-nutrients">
           <div className="nutrient-item">
@@ -1027,6 +1027,8 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
             <ChefHat size={16} /> Gekocht
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

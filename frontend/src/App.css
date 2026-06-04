@@ -1109,68 +1109,78 @@
 
 
 
-/* Inline Delete Confirmation */
-.delete-confirm-inline {
+/* Delete Confirmation Overlay - replaces content */
+.delete-confirm-overlay {
+  padding: 2.5rem 1.5rem;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 2rem;
-  animation: slideIn 0.2s ease-out;
-  flex: 1 1 auto;
-  min-width: 0;
+  justify-content: center;
+  min-height: 250px;
+  animation: fadeIn 0.3s ease-out;
+  background: rgba(244, 236, 216, 0.95);
+  border-radius: 8px;
+  margin: 0.5rem 0;
 }
 
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
 }
 
-.delete-confirm-text {
-  font-size: 1.1rem;
-  color: #e74c3c;
+.delete-confirm-question {
   font-family: 'Special Elite', monospace;
+  font-size: 1.4rem;
+  color: #e74c3c;
   font-weight: bold;
-  flex-shrink: 0;
-  padding-right: 1rem;
+  text-align: center;
+  margin: 0 0 2.5rem 0;
 }
 
-.btn-confirm-yes,
-.btn-confirm-no {
-  padding: 0.75rem 1.8rem;
-  border: none;
-  border-radius: 4px;
+.delete-confirm-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  width: 100%;
+  max-width: 500px;
+}
+
+.btn-delete-confirm-yes,
+.btn-delete-confirm-no {
+  padding: 2rem 1.5rem;
+  border: 3px solid;
+  border-radius: 8px;
   cursor: pointer;
   font-family: 'Special Elite', monospace;
-  font-size: 1.05rem;
-  transition: all 0.2s ease;
-  min-width: 80px;
+  font-size: 1.3rem;
   font-weight: bold;
-  flex-shrink: 0;
+  transition: all 0.2s ease;
+  text-align: center;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
-.btn-confirm-yes {
+.btn-delete-confirm-yes {
   background: #e74c3c;
   color: white;
+  border-color: #c0392b;
 }
 
-.btn-confirm-yes:hover {
+.btn-delete-confirm-yes:hover {
   background: #c0392b;
-  transform: scale(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(231, 76, 60, 0.4);
 }
 
-.btn-confirm-no {
+.btn-delete-confirm-no {
   background: #95a5a6;
   color: white;
+  border-color: #7f8c8d;
 }
 
-.btn-confirm-no:hover {
+.btn-delete-confirm-no:hover {
   background: #7f8c8d;
-  transform: scale(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(149, 165, 166, 0.4);
 }
 
 .modal-actions .btn-secondary:hover {
