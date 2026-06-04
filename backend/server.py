@@ -200,6 +200,10 @@ async def match_recipes_by_ingredients(ingredient_ids: str, max_missing: int = 2
     for recipe in all_recipes:
         recipe_ing_ids = [ing["ingredient_id"] for ing in recipe.get("ingredients", [])]
         
+        # Skip recipes with no ingredients
+        if not recipe_ing_ids:
+            continue
+        
         # Count how many ingredients match
         matching = set(ing_list) & set(recipe_ing_ids)
         missing_count = len(recipe_ing_ids) - len(matching)
@@ -216,7 +220,7 @@ async def match_recipes_by_ingredients(ingredient_ids: str, max_missing: int = 2
                 **recipe,
                 "missing_count": missing_count,
                 "missing_ingredients": missing_ings,
-                "match_percentage": int((len(matching) / len(recipe_ing_ids) * 100)) if recipe_ing_ids else 100
+                "match_percentage": int((len(matching) / len(recipe_ing_ids) * 100))
             })
     
     # Sort by missing count and match percentage
