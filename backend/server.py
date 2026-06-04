@@ -140,6 +140,7 @@ class Recipe(BaseModel):
     instructions: str = ""
     image_url: Optional[str] = None  # New: URL or storage path for recipe image
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class SyncQueueEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -166,11 +167,14 @@ async def create_ingredient(ingredient: IngredientCreate):
     if not ingredient.name.strip():
         raise HTTPException(status_code=400, detail="Name darf nicht leer sein")
     
-    existing = await db.ingredients.find_one({"name": ingredient.name.strip()}, {"_id": 0})
+    # Capitalize first letter
+    capitalized_name = ingredient.name.strip().capitalize()
+    
+    existing = await db.ingredients.find_one({"name": capitalized_name}, {"_id": 0})
     if existing:
         return Ingredient(**existing)
     
-    ingredient_obj = Ingredient(name=ingredient.name.strip())
+    ingredient_obj = Ingredient(name=capitalized_name)
     doc = ingredient_obj.model_dump()
     await db.ingredients.insert_one(doc)
     return ingredient_obj
@@ -382,26 +386,32 @@ async def generate_instructions(request: GenerateInstructionsRequest):
         
         prompt = f"""Erstelle eine kurze, sachliche Kochanleitung für "{request.recipe_name}".
 
-WICHTIG: Verwende NUR diese Zutaten (keine anderen hinzufügen!):
+WICHTIG: Verwende NUR diese Zutaten:
 {ing_text}
+
+AUSNAHMEN (darfst du immer verwenden, auch wenn nicht aufgelistet):
+- Wasser
+- Salz
+- Pfeffer
+- Öl zum Anbraten
 
 Anforderungen:
 - Kurze, einfache Sätze (max. 15 Wörter pro Satz)
 - Keine Schachtelsätze oder Fachbegriffe
 - Direkte Anweisungen im Aktiv
 - Genaue Kochzeiten und Temperaturen
-- Erwähne KEINE zusätzlichen Zutaten, die nicht oben aufgelistet sind
+- Erwähne KEINE zusätzlichen Zutaten außer den Ausnahmen
 - 2-3 kurze Absätze
 
 Beispiel guter Stil:
-"Die Zutaten in einer Pfanne anbraten. 10 Minuten bei mittlerer Hitze garen. Mit Gewürzen abschmecken."
+"Die Zutaten in einer Pfanne mit etwas Öl anbraten. 10 Minuten bei mittlerer Hitze garen. Mit Salz und Pfeffer abschmecken."
 
 Schreibe ohne Nummerierung als fortlaufenden Text."""
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=str(uuid.uuid4()),
-            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die Zutaten, die explizit genannt werden."
+            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die genannten Zutaten plus Wasser, Salz, Pfeffer und Öl."
         ).with_model("gemini", "gemini-3-flash-preview")
         
         # Use non-streaming for this endpoint
@@ -484,7 +494,10 @@ async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
         # Update recipe with new image path (overwrites old one)
         await db.recipes.update_one(
             {"id": recipe_id},
-            {"$set": {"image_url": result["path"]}}
+            {"$set": {
+                "image_url": result["path"],
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
         )
         
         return {"message": "Bild hochgeladen", "path": result["path"]}
