@@ -32,6 +32,7 @@ function HomePage() {
   const [selectedIngredients, setSelectedIngredients] = useState([]);
   const [showIngredientMatch, setShowIngredientMatch] = useState(false);
   const [matchedRecipes, setMatchedRecipes] = useState([]);
+  const [recentlyUsedIngredients, setRecentlyUsedIngredients] = useState([]);
   const [filters, setFilters] = useState({
     minRating: 0,
     maxCalories: "",
@@ -340,6 +341,13 @@ function HomePage() {
       ingredient_ids: [...formData.ingredient_ids, ing.id],
       ingredient_amounts: [...formData.ingredient_amounts, ""]
     });
+    
+    // Add to recently used (move to top)
+    setRecentlyUsedIngredients(prev => {
+      const filtered = prev.filter(id => id !== ing.id);
+      return [ing.id, ...filtered].slice(0, 20); // Keep only last 20
+    });
+    
     setNewIngredient("");
     setFilteredIngredients([]);
     toast.success(`${ing.name} hinzugefügt`);
@@ -377,25 +385,31 @@ function HomePage() {
     );
   };
 
-  const findMatchingRecipes = async () => {
-    if (selectedIngredients.length === 0) {
-      toast.error("Bitte wählen Sie mindestens eine Zutat aus");
-      return;
-    }
+  // Live search: automatically filter recipes when ingredients change
+  useEffect(() => {
+    const filterRecipesByIngredients = async () => {
+      if (selectedIngredients.length === 0) {
+        setMatchedRecipes([]);
+        setShowIngredientMatch(false);
+        return;
+      }
 
-    try {
-      const response = await axios.get(`${API}/recipes/match`, {
-        params: {
-          ingredient_ids: selectedIngredients.join(","),
-          max_missing: 2
-        }
-      });
-      setMatchedRecipes(response.data);
-      setShowIngredientMatch(true);
-    } catch (error) {
-      toast.error("Fehler beim Suchen von Rezepten");
-    }
-  };
+      try {
+        const response = await axios.get(`${API}/recipes/match`, {
+          params: {
+            ingredient_ids: selectedIngredients.join(","),
+            max_missing: 2
+          }
+        });
+        setMatchedRecipes(response.data);
+        setShowIngredientMatch(true);
+      } catch (error) {
+        console.error("Error filtering recipes:", error);
+      }
+    };
+
+    filterRecipesByIngredients();
+  }, [selectedIngredients]);
 
   return (
     <div className="app-container" data-testid="cookbook-app">
@@ -482,26 +496,35 @@ function HomePage() {
           </div>
 
           <div className="ingredient-matcher">
-            <label className="section-label">Rezepte nach Zutaten finden</label>
+            <label className="section-label">Rezepte nach Zutaten filtern</label>
             <div className="ingredient-list">
-              {ingredients.map(ing => (
-                <label key={ing.id} className="ingredient-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={selectedIngredients.includes(ing.id)}
-                    onChange={() => toggleIngredientSelection(ing.id)}
-                  />
-                  <span>{ing.name}</span>
-                </label>
-              ))}
+              {ingredients
+                .sort((a, b) => {
+                  // Sort: recently used first, then alphabetically
+                  const aRecent = recentlyUsedIngredients.indexOf(a.id);
+                  const bRecent = recentlyUsedIngredients.indexOf(b.id);
+                  
+                  if (aRecent !== -1 && bRecent !== -1) return aRecent - bRecent;
+                  if (aRecent !== -1) return -1;
+                  if (bRecent !== -1) return 1;
+                  return a.name.localeCompare(b.name);
+                })
+                .map(ing => (
+                  <label key={ing.id} className="ingredient-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedIngredients.includes(ing.id)}
+                      onChange={() => toggleIngredientSelection(ing.id)}
+                    />
+                    <span>{ing.name}</span>
+                  </label>
+                ))}
             </div>
-            <button 
-              onClick={findMatchingRecipes} 
-              className="btn-secondary"
-              data-testid="find-recipes-btn"
-            >
-              Passende Rezepte finden
-            </button>
+            {selectedIngredients.length > 0 && (
+              <div className="filter-info">
+                {selectedIngredients.length} Zutat(en) ausgewählt
+              </div>
+            )}
           </div>
         </aside>
 
@@ -530,6 +553,7 @@ function HomePage() {
               handleIngredientSearch={handleIngredientSearch}
               selectIngredient={selectIngredient}
               setGeneratedImageBase64={setGeneratedImageBase64}
+              recentlyUsedIngredients={recentlyUsedIngredients}
             />
           )}
 
@@ -593,7 +617,7 @@ function RecipeForm({
   addIngredient, toggleIngredient, updateIngredientAmount, handleSubmit, resetForm,
   generateInstructions, generateImage, generatingInstructions, generatingImage, generatedImageBase64,
   uploadedImageFile, setUploadedImageFile, filteredIngredients, handleIngredientSearch, selectIngredient,
-  setGeneratedImageBase64
+  setGeneratedImageBase64, recentlyUsedIngredients
 }) {
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -736,7 +760,18 @@ function RecipeForm({
               )}
             </div>
             <div className="ingredient-tags">
-              {ingredients.map((ing, idx) => {
+              {ingredients
+                .sort((a, b) => {
+                  // Sort: recently used first, then alphabetically
+                  const aRecent = recentlyUsedIngredients.indexOf(a.id);
+                  const bRecent = recentlyUsedIngredients.indexOf(b.id);
+                  
+                  if (aRecent !== -1 && bRecent !== -1) return aRecent - bRecent;
+                  if (aRecent !== -1) return -1;
+                  if (bRecent !== -1) return 1;
+                  return a.name.localeCompare(b.name);
+                })
+                .map((ing, idx) => {
                 const isSelected = formData.ingredient_ids.includes(ing.id);
                 const selectedIdx = formData.ingredient_ids.indexOf(ing.id);
                 return (
@@ -1014,6 +1049,31 @@ function RecipeDetailPage() {
               <div><strong>Kohlenhydrate:</strong> {recipe.carbs}g</div>
               <div><strong>Fett:</strong> {recipe.fat}g</div>
             </div>
+            
+            {/* Nährwerte pro 100g */}
+            {(() => {
+              const totalGrams = recipe.protein + recipe.carbs + recipe.fat;
+              if (totalGrams > 0) {
+                const factor = 100 / totalGrams;
+                const caloriesPer100 = Math.round(recipe.calories * factor);
+                const proteinPer100 = Math.round(recipe.protein * factor * 10) / 10;
+                const carbsPer100 = Math.round(recipe.carbs * factor * 10) / 10;
+                const fatPer100 = Math.round(recipe.fat * factor * 10) / 10;
+                
+                return (
+                  <div className="nutrients-per-100">
+                    <h4>Nährwerte pro 100g:</h4>
+                    <div className="nutrients-grid-small">
+                      <div><strong>Kalorien:</strong> {caloriesPer100}</div>
+                      <div><strong>Protein:</strong> {proteinPer100}g</div>
+                      <div><strong>Kohlenhydrate:</strong> {carbsPer100}g</div>
+                      <div><strong>Fett:</strong> {fatPer100}g</div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
 

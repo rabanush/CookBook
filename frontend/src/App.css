@@ -209,6 +209,16 @@
   padding-right: 0.5rem;
 }
 
+.filter-info {
+  padding: 0.75rem;
+  background: rgba(139, 111, 71, 0.1);
+  border-radius: 6px;
+  text-align: center;
+  font-size: 0.9rem;
+  color: #5a4a3a;
+  font-weight: 600;
+}
+
 .ingredient-checkbox {
   display: flex;
   align-items: center;
@@ -471,6 +481,11 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 0.5rem;
+  background: rgba(245, 240, 232, 0.3);
+  border-radius: 6px;
 }
 
 .ingredient-tag-with-amount {
@@ -907,6 +922,32 @@
   padding: 0.5rem;
   background: rgba(244, 236, 216, 0.5);
   border-radius: 4px;
+}
+
+.nutrients-per-100 {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px dashed #d4c4a8;
+}
+
+.nutrients-per-100 h4 {
+  font-family: 'Kalam', cursive;
+  color: #6f5a38;
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+}
+
+.nutrients-grid-small {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.nutrients-grid-small div {
+  padding: 0.4rem;
+  background: rgba(232, 220, 196, 0.4);
+  border-radius: 4px;
+  font-size: 0.9rem;
 }
 
 .instructions-text {
