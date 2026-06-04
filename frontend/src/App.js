@@ -33,6 +33,7 @@ function HomePage() {
   const [showIngredientMatch, setShowIngredientMatch] = useState(false);
   const [matchedRecipes, setMatchedRecipes] = useState([]);
   const [recentlyUsedIngredients, setRecentlyUsedIngredients] = useState([]);
+  const [editIngredientsMode, setEditIngredientsMode] = useState(false);
   const [filters, setFilters] = useState({
     minRating: 0,
     maxCalories: "",
@@ -529,16 +530,45 @@ function HomePage() {
                   return a.name.localeCompare(b.name);
                 })
                 .map(ing => (
-                  <label key={ing.id} className="ingredient-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={selectedIngredients.includes(ing.id)}
-                      onChange={() => toggleIngredientSelection(ing.id)}
-                    />
-                    <span>{ing.name}</span>
-                  </label>
+                  <div key={ing.id} className="ingredient-checkbox-wrapper">
+                    <label className="ingredient-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={selectedIngredients.includes(ing.id)}
+                        onChange={() => toggleIngredientSelection(ing.id)}
+                      />
+                      <span>{ing.name}</span>
+                    </label>
+                    {editIngredientsMode && (
+                      <button
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          if (window.confirm(`Zutat "${ing.name}" wirklich löschen?`)) {
+                            try {
+                              await axios.delete(`${API}/ingredients/${ing.id}`);
+                              setIngredients(ingredients.filter(i => i.id !== ing.id));
+                              setSelectedIngredients(selectedIngredients.filter(id => id !== ing.id));
+                              toast.success("Zutat gelöscht");
+                            } catch (error) {
+                              toast.error("Fehler beim Löschen");
+                            }
+                          }
+                        }}
+                        className="btn-delete-ingredient"
+                        title="Zutat löschen"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 ))}
             </div>
+            <button
+              onClick={() => setEditIngredientsMode(!editIngredientsMode)}
+              className="btn-edit-ingredients"
+            >
+              {editIngredientsMode ? "Fertig" : "Bearbeiten"}
+            </button>
             {selectedIngredients.length > 0 && (
               <div className="filter-info">
                 {selectedIngredients.length} Zutat(en) ausgewählt

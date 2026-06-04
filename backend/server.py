@@ -373,6 +373,16 @@ async def mark_recipe_cooked(recipe_id: str):
 
 # ============ AI FEATURES ============
 
+
+
+@api_router.delete("/ingredients/{ingredient_id}")
+async def delete_ingredient(ingredient_id: str):
+    """Delete an ingredient"""
+    result = await db.ingredients.delete_one({"id": ingredient_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Ingredient not found")
+    return {"message": "Zutat gelöscht"}
+
 @api_router.post("/recipes/generate-instructions")
 async def generate_instructions(request: GenerateInstructionsRequest):
     """Generate cooking instructions using AI"""
