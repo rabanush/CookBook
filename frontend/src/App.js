@@ -158,8 +158,29 @@ function HomePage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Comprehensive validation
     if (!formData.name.trim()) {
       toast.error("Name ist erforderlich");
+      return;
+    }
+
+    if (!formData.instructions.trim()) {
+      toast.error("Kochanleitung ist erforderlich");
+      return;
+    }
+
+    if (formData.ingredient_ids.length === 0) {
+      toast.error("Mindestens eine Zutat ist erforderlich");
+      return;
+    }
+
+    if (!generatedImageBase64 && !uploadedImageFile && !editingRecipe?.image_url) {
+      toast.error("Bild ist erforderlich (KI generieren oder hochladen)");
+      return;
+    }
+
+    if (formData.calories < 0 || formData.protein < 0 || formData.carbs < 0 || formData.fat < 0) {
+      toast.error("Nährwerte müssen positiv sein");
       return;
     }
 
@@ -183,8 +204,8 @@ function HomePage() {
         toast.success("Rezept erstellt");
       }
 
-      // Upload image (generated or uploaded file)
-      if (recipeId) {
+      // Upload image (uploaded file takes priority, then generated image)
+      if (recipeId && (uploadedImageFile || generatedImageBase64)) {
         try {
           if (uploadedImageFile) {
             // Upload user's file
@@ -738,6 +759,8 @@ function RecipeForm({
 
 // ============ RECIPE CARD COMPONENT ============
 function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIngredients, navigate }) {
+  const hasImage = recipe.image_url;
+  
   return (
     <div 
       className="recipe-card" 
@@ -745,11 +768,16 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
       onClick={() => navigate(`/recipe/${recipe.id}`)}
       style={{ cursor: 'pointer' }}
     >
-      {recipe.image_url && (
-        <div className="recipe-card-image">
+      <div className="recipe-card-image">
+        {hasImage ? (
           <img src={`${API}/recipes/${recipe.id}/image`} alt={recipe.name} />
-        </div>
-      )}
+        ) : (
+          <div className="recipe-placeholder-image">
+            <ChefHat size={48} />
+            <span>Kein Bild</span>
+          </div>
+        )}
+      </div>
       
       <div className="recipe-card-content">
         <div className="recipe-card-header">

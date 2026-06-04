@@ -380,24 +380,28 @@ async def generate_instructions(request: GenerateInstructionsRequest):
         ing_text = ", ".join([f"{ing['amount']} {ing['name']}" if ing.get('amount') else ing['name'] 
                               for ing in request.ingredients])
         
-        prompt = f"""Erstelle eine kurze, sachliche Kochanleitung für "{request.recipe_name}" mit: {ing_text}.
+        prompt = f"""Erstelle eine kurze, sachliche Kochanleitung für "{request.recipe_name}".
+
+WICHTIG: Verwende NUR diese Zutaten (keine anderen hinzufügen!):
+{ing_text}
 
 Anforderungen:
 - Kurze, einfache Sätze (max. 15 Wörter pro Satz)
 - Keine Schachtelsätze oder Fachbegriffe
 - Direkte Anweisungen im Aktiv
 - Genaue Kochzeiten und Temperaturen
+- Erwähne KEINE zusätzlichen Zutaten, die nicht oben aufgelistet sind
 - 2-3 kurze Absätze
 
 Beispiel guter Stil:
-"Das Hackfleisch in einer Pfanne anbraten. 10 Minuten bei mittlerer Hitze garen. Die Sauce hinzugeben und weitere 5 Minuten köcheln lassen."
+"Die Zutaten in einer Pfanne anbraten. 10 Minuten bei mittlerer Hitze garen. Mit Gewürzen abschmecken."
 
 Schreibe ohne Nummerierung als fortlaufenden Text."""
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=str(uuid.uuid4()),
-            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch."
+            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die Zutaten, die explizit genannt werden."
         ).with_model("gemini", "gemini-3-flash-preview")
         
         # Use non-streaming for this endpoint
@@ -469,14 +473,15 @@ async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
         # Read file data
         data = await file.read()
         
-        # Generate storage path
+        # Generate unique storage path (with timestamp to avoid caching issues)
         ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-        path = f"{APP_NAME}/recipes/{recipe_id}/{uuid.uuid4()}.{ext}"
+        timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
+        path = f"{APP_NAME}/recipes/{recipe_id}/{timestamp}_{uuid.uuid4()}.{ext}"
         
         # Upload to storage
         result = put_object(path, data, file.content_type)
         
-        # Update recipe with image path
+        # Update recipe with new image path (overwrites old one)
         await db.recipes.update_one(
             {"id": recipe_id},
             {"$set": {"image_url": result["path"]}}
