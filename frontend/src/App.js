@@ -225,8 +225,10 @@ function HomePage() {
       instructions: recipe.instructions || ""
     });
     setShowForm(true);
+    // Clear any generated/uploaded images when editing
     setGeneratedImageBase64(null);
     setUploadedImageFile(null);
+    // Note: Existing recipe image (from image_url) will be preserved unless replaced
   };
 
   const handleDelete = async (id) => {
@@ -537,20 +539,17 @@ function RecipeForm({
         return;
       }
       setUploadedImageFile(file);
-      // Show preview
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        // We'll display the uploaded file preview
-      };
-      reader.readAsDataURL(file);
       toast.success("Bild ausgewählt");
     }
   };
 
+  // Display priority: uploaded file > generated image > existing recipe image
   const displayImage = uploadedImageFile 
     ? URL.createObjectURL(uploadedImageFile) 
     : generatedImageBase64 
     ? `data:image/png;base64,${generatedImageBase64}` 
+    : editingRecipe?.image_url 
+    ? `${API}/recipes/${editingRecipe.id}/image`
     : null;
 
   return (
@@ -566,6 +565,9 @@ function RecipeForm({
         {displayImage && (
           <div className="generated-image-preview">
             <img src={displayImage} alt="Rezeptbild" />
+            {editingRecipe && !uploadedImageFile && !generatedImageBase64 && (
+              <div className="image-hint">Aktuelles Bild (kann ersetzt werden)</div>
+            )}
           </div>
         )}
 
@@ -753,10 +755,10 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
         <div className="recipe-card-header">
           <h3 className="recipe-name" data-testid="recipe-name">{recipe.name}</h3>
           <div className="recipe-actions" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => onEdit(recipe)} className="btn-icon" data-testid="edit-recipe-btn">
+            <button onClick={(e) => { e.stopPropagation(); onEdit(recipe); }} className="btn-icon" data-testid="edit-recipe-btn">
               <Edit2 size={16} />
             </button>
-            <button onClick={() => onDelete(recipe.id)} className="btn-icon" data-testid="delete-recipe-btn">
+            <button onClick={(e) => { e.stopPropagation(); onDelete(recipe.id); }} className="btn-icon" data-testid="delete-recipe-btn">
               <Trash2 size={16} />
             </button>
           </div>

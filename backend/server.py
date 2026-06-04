@@ -380,21 +380,24 @@ async def generate_instructions(request: GenerateInstructionsRequest):
         ing_text = ", ".join([f"{ing['amount']} {ing['name']}" if ing.get('amount') else ing['name'] 
                               for ing in request.ingredients])
         
-        prompt = f"""Erstelle eine professionelle Kochanleitung für das Rezept "{request.recipe_name}" mit folgenden Zutaten: {ing_text}.
+        prompt = f"""Erstelle eine kurze, sachliche Kochanleitung für "{request.recipe_name}" mit: {ing_text}.
 
-Die Anleitung soll:
-- Präzise und sachlich formuliert sein
-- Schritt-für-Schritt-Anweisungen enthalten
-- Genaue Kochzeiten und Temperaturen angeben
-- Professionelle Kochtechniken beschreiben
-- Wichtige Hinweise zur Zubereitung geben
+Anforderungen:
+- Kurze, einfache Sätze (max. 15 Wörter pro Satz)
+- Keine Schachtelsätze oder Fachbegriffe
+- Direkte Anweisungen im Aktiv
+- Genaue Kochzeiten und Temperaturen
+- 2-3 kurze Absätze
 
-Schreibe als fortlaufenden Text in 3-4 Absätzen, nicht als nummerierte Liste."""
+Beispiel guter Stil:
+"Das Hackfleisch in einer Pfanne anbraten. 10 Minuten bei mittlerer Hitze garen. Die Sauce hinzugeben und weitere 5 Minuten köcheln lassen."
+
+Schreibe ohne Nummerierung als fortlaufenden Text."""
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=str(uuid.uuid4()),
-            system_message="Du bist ein professioneller Koch, der präzise Kochanleitungen schreibt. Dein Stil ist sachlich, klar und fachkundig."
+            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch."
         ).with_model("gemini", "gemini-3-flash-preview")
         
         # Use non-streaming for this endpoint
