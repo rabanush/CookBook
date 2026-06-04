@@ -615,7 +615,7 @@ function RecipeForm({
     : generatedImageBase64 
     ? `data:image/png;base64,${generatedImageBase64}` 
     : editingRecipe?.image_url 
-    ? `${API}/recipes/${editingRecipe.id}/image?v=${editingRecipe.updated_at ? new Date(editingRecipe.updated_at).getTime() : Date.now()}`
+    ? `${API}/recipes/${editingRecipe.id}/image?k=${editingRecipe.image_url.split('/').pop()}`
     : null;
 
   return (
@@ -832,9 +832,9 @@ function RecipeForm({
 // ============ RECIPE CARD COMPONENT ============
 function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIngredients, navigate }) {
   const hasImage = recipe.image_url;
-  // Use updated_at as cache buster for better performance
-  const cacheKey = recipe.updated_at ? new Date(recipe.updated_at).getTime() : Date.now();
-  const imageUrl = hasImage ? `${API}/recipes/${recipe.id}/image?v=${cacheKey}` : null;
+  // Use image_url hash as cache key - changes only when image changes
+  const imageKey = hasImage ? recipe.image_url.split('/').pop() : '';
+  const imageUrl = hasImage ? `${API}/recipes/${recipe.id}/image?k=${imageKey}` : null;
   
   return (
     <div 
@@ -983,7 +983,7 @@ function RecipeDetailPage() {
 
       {recipe.image_url && (
         <div className="detail-hero-image" data-testid="recipe-image">
-          <img src={`${API}/recipes/${id}/image?v=${recipe.updated_at ? new Date(recipe.updated_at).getTime() : Date.now()}`} alt={recipe.name} />
+          <img src={`${API}/recipes/${id}/image?k=${recipe.image_url.split('/').pop()}`} alt={recipe.name} />
         </div>
       )}
 

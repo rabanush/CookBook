@@ -391,9 +391,10 @@ WICHTIG: Verwende NUR diese Zutaten:
 
 AUSNAHMEN (darfst du immer verwenden, auch wenn nicht aufgelistet):
 - Wasser
-- Salz
-- Pfeffer
-- Öl zum Anbraten
+- Alle gängigen Gewürze (Salz, Pfeffer, Paprika, Oregano, Thymian, Basilikum, Knoblauch, etc.)
+- Olivenöl oder Sonnenblumenöl (gib an welches!)
+
+WICHTIG ZU ÖL: Sage explizit WELCHES Öl verwendet werden soll (Olivenöl ODER Sonnenblumenöl). Beide sind vorhanden.
 
 Anforderungen:
 - Kurze, einfache Sätze (max. 15 Wörter pro Satz)
@@ -404,14 +405,14 @@ Anforderungen:
 - 2-3 kurze Absätze
 
 Beispiel guter Stil:
-"Die Zutaten in einer Pfanne mit etwas Öl anbraten. 10 Minuten bei mittlerer Hitze garen. Mit Salz und Pfeffer abschmecken."
+"Die Zutaten in einer Pfanne mit Olivenöl anbraten. 10 Minuten bei mittlerer Hitze garen. Mit Salz, Pfeffer und Paprika abschmecken."
 
 Schreibe ohne Nummerierung als fortlaufenden Text."""
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=str(uuid.uuid4()),
-            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die genannten Zutaten plus Wasser, Salz, Pfeffer und Öl."
+            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die genannten Zutaten plus Wasser, alle Gewürze und Olivenöl/Sonnenblumenöl (gib an welches)."
         ).with_model("gemini", "gemini-3-flash-preview")
         
         # Use non-streaming for this endpoint
@@ -508,14 +509,23 @@ async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
 
 @api_router.get("/recipes/{recipe_id}/image")
 async def get_recipe_image(recipe_id: str):
-    """Get recipe image"""
+    """Get recipe image with proper caching headers"""
     recipe = await db.recipes.find_one({"id": recipe_id}, {"_id": 0})
     if not recipe or not recipe.get("image_url"):
         raise HTTPException(status_code=404, detail="Bild nicht gefunden")
     
     try:
         data, content_type = get_object(recipe["image_url"])
-        return Response(content=data, media_type=content_type)
+        
+        # Set aggressive caching headers - cache until image_url changes
+        return Response(
+            content=data, 
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable",  # 1 year
+                "ETag": recipe.get("image_url", ""),
+            }
+        )
     except Exception as e:
         logging.error(f"Error fetching image: {e}")
         raise HTTPException(status_code=404, detail="Bild nicht verfügbar")
