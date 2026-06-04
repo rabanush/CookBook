@@ -949,32 +949,36 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
         </div>
 
         {showDeleteConfirm ? (
-          <div className="delete-confirm-overlay" onClick={(e) => e.stopPropagation()}>
-            <p className="delete-confirm-question">Rezept wirklich löschen?</p>
-            <div className="delete-confirm-buttons">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  onDelete(recipe);
-                  setShowDeleteConfirm(false);
-                }}
-                className="btn-delete-confirm-yes"
-              >
-                Ja, löschen
-              </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  setShowDeleteConfirm(false);
-                }}
-                className="btn-delete-confirm-no"
-              >
-                Abbrechen
-              </button>
+          <>
+            <div className="recipe-divider"></div>
+            <div className="delete-confirm-overlay" onClick={(e) => e.stopPropagation()}>
+              <p className="delete-confirm-question">Löschen?</p>
+              <div className="delete-confirm-buttons">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onDelete(recipe);
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="btn-delete-confirm-yes"
+                >
+                  Ja, löschen
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="btn-delete-confirm-no"
+                >
+                  Abbrechen
+                </button>
+              </div>
             </div>
-          </div>
+            <div className="recipe-divider"></div>
+          </>
         ) : (
           <>
             <div className="recipe-divider"></div>

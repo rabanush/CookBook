@@ -1109,54 +1109,52 @@
 
 
 
-/* Delete Confirmation Overlay - replaces content */
+/* Delete Confirmation Overlay - uses full nutrients space */
 .delete-confirm-overlay {
-  padding: 2.5rem 1.5rem;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 250px;
+  gap: 1.5rem;
   animation: fadeIn 0.3s ease-out;
-  background: rgba(244, 236, 216, 0.95);
-  border-radius: 8px;
-  margin: 0.5rem 0;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: scale(0.95); }
+  from { opacity: 0; transform: scale(0.98); }
   to { opacity: 1; transform: scale(1); }
 }
 
 .delete-confirm-question {
   font-family: 'Special Elite', monospace;
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   color: #e74c3c;
   font-weight: bold;
   text-align: center;
-  margin: 0 0 2.5rem 0;
+  margin: 1rem 0;
+  padding: 0.5rem;
 }
 
 .delete-confirm-buttons {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2rem;
+  gap: 1rem;
   width: 100%;
-  max-width: 500px;
 }
 
 .btn-delete-confirm-yes,
 .btn-delete-confirm-no {
-  padding: 2rem 1.5rem;
+  padding: 3rem 2rem;
   border: 3px solid;
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
   font-family: 'Special Elite', monospace;
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   font-weight: bold;
   transition: all 0.2s ease;
   text-align: center;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-delete-confirm-yes {
@@ -1167,8 +1165,8 @@
 
 .btn-delete-confirm-yes:hover {
   background: #c0392b;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(231, 76, 60, 0.4);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(231, 76, 60, 0.4);
 }
 
 .btn-delete-confirm-no {
@@ -1179,8 +1177,8 @@
 
 .btn-delete-confirm-no:hover {
   background: #7f8c8d;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(149, 165, 166, 0.4);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(149, 165, 166, 0.4);
 }
 
 .modal-actions .btn-secondary:hover {
