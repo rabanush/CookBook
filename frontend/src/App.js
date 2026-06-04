@@ -254,13 +254,7 @@ function HomePage() {
     // Note: Existing recipe image (from image_url) will be preserved unless replaced
   };
 
-  const handleDelete = async (id, e) => {
-    // Stop propagation at handler level
-    if (e) {
-      e.stopPropagation();
-      e.preventDefault();
-    }
-    
+  const handleDelete = async (id) => {
     if (!window.confirm("Rezept wirklich löschen?")) return;
     
     try {
@@ -940,7 +934,7 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
               onClick={(e) => { 
                 e.stopPropagation(); 
                 e.preventDefault();
-                onDelete(recipe.id, e); 
+                onDelete(recipe.id); 
               }} 
               className="btn-icon" 
               data-testid="delete-recipe-btn"
