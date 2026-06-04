@@ -38,6 +38,7 @@ function HomePage() {
     minProtein: ""
   });
   const [newIngredient, setNewIngredient] = useState("");
+  const [filteredIngredients, setFilteredIngredients] = useState([]);
   const [formData, setFormData] = useState({
     name: "",
     calories: "",
@@ -252,7 +253,13 @@ function HomePage() {
     // Note: Existing recipe image (from image_url) will be preserved unless replaced
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, e) => {
+    // Stop propagation at handler level
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    
     if (!window.confirm("Rezept wirklich löschen?")) return;
     
     try {
@@ -260,6 +267,7 @@ function HomePage() {
       toast.success("Rezept gelöscht");
       fetchRecipes();
     } catch (error) {
+      console.error("Delete error:", error);
       toast.error("Fehler beim Löschen");
     }
   };
@@ -301,10 +309,40 @@ function HomePage() {
       const response = await axios.post(`${API}/ingredients`, { name: newIngredient });
       setIngredients([...ingredients, response.data]);
       setNewIngredient("");
+      setFilteredIngredients([]);
       toast.success("Zutat hinzugefügt");
     } catch (error) {
       toast.error("Fehler beim Hinzufügen der Zutat");
     }
+  };
+
+  const handleIngredientSearch = (value) => {
+    setNewIngredient(value);
+    if (value.trim()) {
+      const filtered = ingredients.filter(ing => 
+        ing.name.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredIngredients(filtered);
+    } else {
+      setFilteredIngredients([]);
+    }
+  };
+
+  const selectIngredient = (ing) => {
+    // Check if already added
+    if (formData.ingredient_ids.includes(ing.id)) {
+      toast.error(`${ing.name} wurde bereits hinzugefügt`);
+      return;
+    }
+    
+    setFormData({
+      ...formData,
+      ingredient_ids: [...formData.ingredient_ids, ing.id],
+      ingredient_amounts: [...formData.ingredient_amounts, ""]
+    });
+    setNewIngredient("");
+    setFilteredIngredients([]);
+    toast.success(`${ing.name} hinzugefügt`);
   };
 
   const toggleIngredient = (ingId) => {
@@ -488,6 +526,10 @@ function HomePage() {
               generatedImageBase64={generatedImageBase64}
               uploadedImageFile={uploadedImageFile}
               setUploadedImageFile={setUploadedImageFile}
+              filteredIngredients={filteredIngredients}
+              handleIngredientSearch={handleIngredientSearch}
+              selectIngredient={selectIngredient}
+              setGeneratedImageBase64={setGeneratedImageBase64}
             />
           )}
 
@@ -550,7 +592,8 @@ function RecipeForm({
   formData, setFormData, editingRecipe, ingredients, newIngredient, setNewIngredient,
   addIngredient, toggleIngredient, updateIngredientAmount, handleSubmit, resetForm,
   generateInstructions, generateImage, generatingInstructions, generatingImage, generatedImageBase64,
-  uploadedImageFile, setUploadedImageFile
+  uploadedImageFile, setUploadedImageFile, filteredIngredients, handleIngredientSearch, selectIngredient,
+  setGeneratedImageBase64
 }) {
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -560,6 +603,8 @@ function RecipeForm({
         return;
       }
       setUploadedImageFile(file);
+      // Clear generated image when uploading own image
+      setGeneratedImageBase64(null);
       toast.success("Bild ausgewählt");
     }
   };
@@ -650,18 +695,45 @@ function RecipeForm({
 
           <div className="form-group full-width">
             <label>Zutaten</label>
-            <div className="ingredient-add">
-              <input
-                type="text"
-                placeholder="Neue Zutat..."
-                value={newIngredient}
-                onChange={(e) => setNewIngredient(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addIngredient())}
-                data-testid="new-ingredient-input"
-              />
-              <button type="button" onClick={addIngredient} className="btn-add" data-testid="add-ingredient-btn">
-                <Plus size={18} />
-              </button>
+            <div className="ingredient-search-wrapper">
+              <div className="ingredient-add">
+                <input
+                  type="text"
+                  placeholder="Zutat suchen..."
+                  value={newIngredient}
+                  onChange={(e) => handleIngredientSearch(e.target.value)}
+                  data-testid="new-ingredient-input"
+                />
+                <button 
+                  type="button" 
+                  onClick={addIngredient} 
+                  className="btn-add" 
+                  data-testid="add-ingredient-btn"
+                  title="Neue Zutat erstellen"
+                >
+                  <Plus size={18} />
+                </button>
+              </div>
+              
+              {filteredIngredients.length > 0 && (
+                <div className="ingredient-suggestions">
+                  {filteredIngredients.map(ing => (
+                    <div 
+                      key={ing.id} 
+                      className="ingredient-suggestion"
+                      onClick={() => selectIngredient(ing)}
+                    >
+                      {ing.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {newIngredient && filteredIngredients.length === 0 && (
+                <div className="no-results">
+                  Keine Zutat gefunden. Mit + erstellen.
+                </div>
+              )}
             </div>
             <div className="ingredient-tags">
               {ingredients.map((ing, idx) => {
@@ -760,6 +832,8 @@ function RecipeForm({
 // ============ RECIPE CARD COMPONENT ============
 function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIngredients, navigate }) {
   const hasImage = recipe.image_url;
+  // Add timestamp to prevent caching
+  const imageUrl = hasImage ? `${API}/recipes/${recipe.id}/image?t=${Date.now()}` : null;
   
   return (
     <div 
@@ -770,7 +844,7 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
     >
       <div className="recipe-card-image">
         {hasImage ? (
-          <img src={`${API}/recipes/${recipe.id}/image`} alt={recipe.name} />
+          <img src={imageUrl} alt={recipe.name} />
         ) : (
           <div className="recipe-placeholder-image">
             <ChefHat size={48} />
@@ -782,11 +856,23 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
       <div className="recipe-card-content">
         <div className="recipe-card-header">
           <h3 className="recipe-name" data-testid="recipe-name">{recipe.name}</h3>
-          <div className="recipe-actions" onClick={(e) => e.stopPropagation()}>
-            <button onClick={(e) => { e.stopPropagation(); onEdit(recipe); }} className="btn-icon" data-testid="edit-recipe-btn">
+          <div className="recipe-actions">
+            <button 
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                onEdit(recipe); 
+              }} 
+              className="btn-icon" 
+              data-testid="edit-recipe-btn"
+            >
               <Edit2 size={16} />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); onDelete(recipe.id); }} className="btn-icon" data-testid="delete-recipe-btn">
+            <button 
+              onClick={(e) => onDelete(recipe.id, e)} 
+              className="btn-icon" 
+              data-testid="delete-recipe-btn"
+            >
               <Trash2 size={16} />
             </button>
           </div>
