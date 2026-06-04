@@ -40,6 +40,7 @@ function HomePage() {
   });
   const [newIngredient, setNewIngredient] = useState("");
   const [filteredIngredients, setFilteredIngredients] = useState([]);
+  const [deleteConfirmation, setDeleteConfirmation] = useState({ show: false, recipeId: null, recipeName: "" });
   const [formData, setFormData] = useState({
     name: "",
     calories: "",
@@ -255,20 +256,33 @@ function HomePage() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Rezept wirklich löschen?")) return;
-    
     try {
-      // Backend-Delete
+      // Backend löschen
       await axios.delete(`${API}/recipes/${id}`);
       
-      // Neu laden vom Server für garantierte Konsistenz
+      // Neu laden vom Server
       await fetchRecipes();
+      
+      // Dialog schließen
+      setDeleteConfirmation({ show: false, recipeId: null, recipeName: "" });
       
       toast.success("Rezept gelöscht");
     } catch (error) {
       console.error("Delete error:", error);
       toast.error("Fehler beim Löschen");
     }
+  };
+  
+  const confirmDelete = (recipe) => {
+    setDeleteConfirmation({ 
+      show: true, 
+      recipeId: recipe.id,
+      recipeName: recipe.name 
+    });
+  };
+  
+  const cancelDelete = () => {
+    setDeleteConfirmation({ show: false, recipeId: null, recipeName: "" });
   };
 
   const handleCooked = async (recipe) => {
@@ -592,7 +606,7 @@ function HomePage() {
                     key={recipe.id} 
                     recipe={recipe} 
                     onEdit={handleEdit}
-                    onDelete={handleDelete}
+                    onDelete={confirmDelete}
                     onCooked={handleCooked}
                     onRate={handleRating}
                     showMissingIngredients={true}
@@ -612,7 +626,7 @@ function HomePage() {
                     key={recipe.id} 
                     recipe={recipe} 
                     onEdit={handleEdit}
-                    onDelete={handleDelete}
+                    onDelete={confirmDelete}
                     onCooked={handleCooked}
                     onRate={handleRating}
                     navigate={navigate}
@@ -628,6 +642,24 @@ function HomePage() {
           )}
         </main>
       </div>
+      
+      {/* Bestätigungs-Dialog */}
+      {deleteConfirmation.show && (
+        <div className="modal-overlay" onClick={cancelDelete}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Rezept löschen?</h3>
+            <p>Möchtest du "{deleteConfirmation.recipeName}" wirklich löschen?</p>
+            <div className="modal-actions">
+              <button onClick={() => handleDelete(deleteConfirmation.recipeId)} className="btn-primary">
+                Ja, löschen
+              </button>
+              <button onClick={cancelDelete} className="btn-secondary">
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -938,7 +970,7 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
               onClick={(e) => { 
                 e.stopPropagation(); 
                 e.preventDefault();
-                onDelete(recipe.id); 
+                onDelete(recipe); 
               }} 
               className="btn-icon" 
               data-testid="delete-recipe-btn"
