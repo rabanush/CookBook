@@ -1175,20 +1175,25 @@
 /* Ingredient Edit Mode */
 .ingredient-checkbox-wrapper {
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
   width: 100%;
+  padding: 0.2rem 0;
 }
 
 .ingredient-checkbox {
   flex: 1;
+  display: flex;
+  align-items: center;
 }
 
 .btn-delete-ingredient {
   background: #e74c3c;
   border: none;
   border-radius: 4px;
-  padding: 0.4rem 0.5rem;
+  padding: 0.5rem 0.6rem;
   cursor: pointer;
   color: white;
   display: flex;
@@ -1200,7 +1205,7 @@
 
 .btn-delete-ingredient:hover {
   background: #c0392b;
-  transform: scale(1.1);
+  transform: scale(1.15);
 }
 
 .btn-edit-ingredients {
