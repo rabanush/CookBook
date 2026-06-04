@@ -14,8 +14,7 @@ import requests
 import base64
 import asyncio
 from datetime import datetime, timezone
-from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone, ImageContent
-from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
+import google.generativeai as genai
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -27,12 +26,15 @@ db = client[os.environ['DB_NAME']]
 
 # API Keys
 API_KEY = os.environ.get('API_KEY', '')
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
 
-# Object Storage Configuration
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
-APP_NAME = "cookbook-app"
-storage_key = None
+# Configure Google Generative AI
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+
+# File storage directory
+UPLOAD_DIR = Path("/app/uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Create the main app
 app = FastAPI()
@@ -40,45 +42,25 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-# Initialize object storage
-def init_storage():
-    global storage_key
-    if storage_key:
-        return storage_key
-    try:
-        resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30)
-        resp.raise_for_status()
-        storage_key = resp.json()["storage_key"]
-        logging.info("Object storage initialized successfully")
-        return storage_key
-    except Exception as e:
-        logging.error(f"Storage init failed: {e}")
-        return None
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def put_object(path: str, data: bytes, content_type: str) -> dict:
-    """Upload file to storage"""
-    key = init_storage()
-    if not key:
-        raise Exception("Storage not initialized")
-    resp = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data, timeout=120
-    )
-    resp.raise_for_status()
-    return resp.json()
+# File storage functions (local filesystem)
+def save_file(file_id: str, data: bytes, content_type: str) -> str:
+    """Save file to local storage"""
+    file_path = UPLOAD_DIR / f"{file_id}.jpg"
+    with open(file_path, 'wb') as f:
+        f.write(data)
+    return str(file_path)
 
-def get_object(path: str) -> tuple[bytes, str]:
-    """Download file from storage"""
-    key = init_storage()
-    if not key:
-        raise Exception("Storage not initialized")
-    resp = requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key}, timeout=60
-    )
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+def load_file(file_id: str) -> tuple[bytes, str]:
+    """Load file from local storage"""
+    file_path = UPLOAD_DIR / f"{file_id}.jpg"
+    if not file_path.exists():
+        raise FileNotFoundError(f"File {file_id} not found")
+    with open(file_path, 'rb') as f:
+        data = f.read()
+    return data, "image/jpeg"
 
 # Middleware for API key validation
 async def verify_api_key(request: Request, call_next):
@@ -386,8 +368,8 @@ async def delete_ingredient(ingredient_id: str):
 @api_router.post("/recipes/generate-instructions")
 async def generate_instructions(request: GenerateInstructionsRequest):
     """Generate cooking instructions using AI"""
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(status_code=500, detail="AI-Funktion nicht konfiguriert")
+    if not GOOGLE_API_KEY:
+        raise HTTPException(status_code=500, detail="Google API Key nicht konfiguriert. Bitte GOOGLE_API_KEY in .env setzen.")
     
     try:
         # Build ingredient list text
@@ -424,16 +406,13 @@ Beispiel guter Stil:
 
 Schreibe ohne Nummerierung als fortlaufenden Text."""
 
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=str(uuid.uuid4()),
-            system_message="Du schreibst moderne, prägnante Kochanleitungen. Verwende kurze, klare Sätze ohne Fachsprache. Sei direkt und praktisch. WICHTIG: Verwende nur die genannten Zutaten plus Wasser, alle Gewürze und Olivenöl/Sonnenblumenöl (gib an welches). Wenn eine essentielle Hauptzutat für das Gericht fehlt, weise am Anfang darauf hin."
-        ).with_model("gemini", "gemini-3-flash-preview")
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        response = await asyncio.to_thread(
+            model.generate_content,
+            prompt
+        )
         
-        # Use non-streaming for this endpoint
-        result = await chat.send_message(UserMessage(text=prompt))
-        # Gemini returns string directly
-        instructions = result if isinstance(result, str) else result.content
+        instructions = response.text
         
         return {"instructions": instructions}
         
@@ -444,8 +423,8 @@ Schreibe ohne Nummerierung als fortlaufenden Text."""
 @api_router.post("/recipes/generate-image")
 async def generate_recipe_image(request: GenerateImageRequest):
     """Generate recipe image using AI"""
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(status_code=500, detail="AI-Funktion nicht konfiguriert")
+    if not GOOGLE_API_KEY:
+        raise HTTPException(status_code=500, detail="Google API Key nicht konfiguriert. Bitte GOOGLE_API_KEY in .env setzen.")
     
     try:
         # Create a vintage-style prompt that fits the cookbook aesthetic
@@ -461,22 +440,28 @@ Das Bild soll:
 
 Stil: Professional food photography with vintage aesthetic, soft natural lighting, rustic presentation, warm tones, homemade comfort food look"""
 
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=str(uuid.uuid4()),
-            system_message="You are an expert food photographer specializing in vintage, nostalgic cookbook imagery."
-        ).with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        response = await asyncio.to_thread(
+            model.generate_content,
+            prompt
+        )
         
-        # Generate image
-        text_response, images = await chat.send_message_multimodal_response(UserMessage(text=prompt))
+        # Gemini 2.0 Flash supports text-to-image
+        # Extract image from response if available
+        if response.candidates and len(response.candidates) > 0:
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                for part in candidate.content.parts:
+                    if hasattr(part, 'inline_data'):
+                        image_data = part.inline_data.data
+                        return {"image_base64": base64.b64encode(image_data).decode('utf-8'), "content_type": "image/png"}
         
-        if not images or len(images) == 0:
-            raise HTTPException(status_code=500, detail="Kein Bild generiert")
+        # Fallback: use a placeholder or return error
+        raise HTTPException(status_code=500, detail="Bildgenerierung nicht unterstützt mit diesem Modell")
         
-        # Get the first image (already base64 encoded from Gemini)
-        image_base64 = images[0]['data']
-        
-        return {"image_base64": image_base64, "content_type": images[0].get('mime_type', 'image/png')}
+    except Exception as e:
+        logging.error(f"Error generating image: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler bei der Bild-Generierung: {str(e)}")
         
     except Exception as e:
         logging.error(f"Error generating image: {e}")
@@ -494,6 +479,38 @@ async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
     # Validate file type
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Nur Bilddateien sind erlaubt")
+    
+    try:
+        # Read file content
+        content = await file.read()
+        
+        # Save to local filesystem
+        file_path = save_file(recipe_id, content, file.content_type)
+        
+        # Update recipe with image URL
+        image_url = f"/uploads/{recipe_id}.jpg"
+        await db.recipes.update_one(
+            {"id": recipe_id},
+            {"$set": {"image_url": image_url, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        
+        return {"message": "Bild hochgeladen", "image_url": image_url}
+        
+    except Exception as e:
+        logging.error(f"Upload error: {e}")
+        raise HTTPException(status_code=500, detail="Fehler beim Hochladen")
+
+@api_router.get("/recipes/{recipe_id}/image")
+async def get_recipe_image(recipe_id: str):
+    """Get recipe image"""
+    try:
+        data, content_type = load_file(recipe_id)
+        return Response(content=data, media_type=content_type)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden")
+    except Exception as e:
+        logging.error(f"Image retrieval error: {e}")
+        raise HTTPException(status_code=500, detail="Fehler beim Laden des Bildes")
     
     try:
         # Read file data

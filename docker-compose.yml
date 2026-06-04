@@ -1,15 +1,57 @@
 version: '3.8'
 
 services:
-  cookbook-app:
-    build: .
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - API_KEY=${API_KEY:-}
-      - MONGO_URL=mongodb://localhost:27017
-      - DB_NAME=cookbook_database
-      - CORS_ORIGINS=*
+  mongodb:
+    image: mongo:7.0
+    container_name: cookbook-mongodb
     restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: cookbook
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - cookbook-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: cookbook-backend
+    restart: unless-stopped
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=cookbook
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend/uploads:/app/uploads
+    networks:
+      - cookbook-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: cookbook-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8001
+    networks:
+      - cookbook-network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  cookbook-network:
+    driver: bridge
