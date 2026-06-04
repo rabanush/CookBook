@@ -380,21 +380,21 @@ async def generate_instructions(request: GenerateInstructionsRequest):
         ing_text = ", ".join([f"{ing['amount']} {ing['name']}" if ing.get('amount') else ing['name'] 
                               for ing in request.ingredients])
         
-        prompt = f"""Du schreibst für ein altes, handgeschriebenes Familien-Kochbuch. Erstelle eine warmherzige, persönliche Kochanleitung für "{request.recipe_name}" mit den Zutaten: {ing_text}.
+        prompt = f"""Erstelle eine professionelle Kochanleitung für das Rezept "{request.recipe_name}" mit folgenden Zutaten: {ing_text}.
 
-Schreibe im Stil eines traditionellen Kochbuchs:
-- Verwende eine persönliche, einladende Sprache ("Man nehme...", "Dann rühre man...")
-- Gib Schritt-für-Schritt Anweisungen
-- Füge praktische Tipps und kleine Geheimnisse hinzu
-- Erwähne Kochzeiten und Temperaturen
-- Beende mit einem herzlichen Tipp zum Servieren
+Die Anleitung soll:
+- Präzise und sachlich formuliert sein
+- Schritt-für-Schritt-Anweisungen enthalten
+- Genaue Kochzeiten und Temperaturen angeben
+- Professionelle Kochtechniken beschreiben
+- Wichtige Hinweise zur Zubereitung geben
 
 Schreibe als fortlaufenden Text in 3-4 Absätzen, nicht als nummerierte Liste."""
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=str(uuid.uuid4()),
-            system_message="Du bist eine erfahrene Großmutter, die ihre Lieblingsrezepte in ein altes Familienkochbuch schreibt. Deine Anleitungen sind warm, persönlich und voller praktischer Weisheiten."
+            system_message="Du bist ein professioneller Koch, der präzise Kochanleitungen schreibt. Dein Stil ist sachlich, klar und fachkundig."
         ).with_model("gemini", "gemini-3-flash-preview")
         
         # Use non-streaming for this endpoint

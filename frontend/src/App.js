@@ -51,6 +51,7 @@ function HomePage() {
   const [generatingInstructions, setGeneratingInstructions] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [generatedImageBase64, setGeneratedImageBase64] = useState(null);
+  const [uploadedImageFile, setUploadedImageFile] = useState(null);
 
   useEffect(() => {
     fetchRecipes();
@@ -182,16 +183,25 @@ function HomePage() {
         toast.success("Rezept erstellt");
       }
 
-      // Upload generated image if exists
-      if (generatedImageBase64 && recipeId) {
+      // Upload image (generated or uploaded file)
+      if (recipeId) {
         try {
-          const blob = await fetch(`data:image/png;base64,${generatedImageBase64}`).then(r => r.blob());
-          const file = new File([blob], "generated.png", { type: "image/png" });
-          const formData = new FormData();
-          formData.append("file", file);
-          await axios.post(`${API}/recipes/${recipeId}/upload-image`, formData);
+          if (uploadedImageFile) {
+            // Upload user's file
+            const formData = new FormData();
+            formData.append("file", uploadedImageFile);
+            await axios.post(`${API}/recipes/${recipeId}/upload-image`, formData);
+          } else if (generatedImageBase64) {
+            // Upload generated image
+            const blob = await fetch(`data:image/png;base64,${generatedImageBase64}`).then(r => r.blob());
+            const file = new File([blob], "generated.png", { type: "image/png" });
+            const formData = new FormData();
+            formData.append("file", file);
+            await axios.post(`${API}/recipes/${recipeId}/upload-image`, formData);
+          }
         } catch (err) {
           console.error("Image upload failed:", err);
+          toast.error("Bild konnte nicht hochgeladen werden");
         }
       }
 
@@ -216,6 +226,7 @@ function HomePage() {
     });
     setShowForm(true);
     setGeneratedImageBase64(null);
+    setUploadedImageFile(null);
   };
 
   const handleDelete = async (id) => {
@@ -257,6 +268,7 @@ function HomePage() {
     setEditingRecipe(null);
     setShowForm(false);
     setGeneratedImageBase64(null);
+    setUploadedImageFile(null);
   };
 
   const addIngredient = async () => {
@@ -451,6 +463,8 @@ function HomePage() {
               generatingInstructions={generatingInstructions}
               generatingImage={generatingImage}
               generatedImageBase64={generatedImageBase64}
+              uploadedImageFile={uploadedImageFile}
+              setUploadedImageFile={setUploadedImageFile}
             />
           )}
 
@@ -512,8 +526,33 @@ function HomePage() {
 function RecipeForm({
   formData, setFormData, editingRecipe, ingredients, newIngredient, setNewIngredient,
   addIngredient, toggleIngredient, updateIngredientAmount, handleSubmit, resetForm,
-  generateInstructions, generateImage, generatingInstructions, generatingImage, generatedImageBase64
+  generateInstructions, generateImage, generatingInstructions, generatingImage, generatedImageBase64,
+  uploadedImageFile, setUploadedImageFile
 }) {
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        toast.error("Bitte nur Bilddateien hochladen");
+        return;
+      }
+      setUploadedImageFile(file);
+      // Show preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        // We'll display the uploaded file preview
+      };
+      reader.readAsDataURL(file);
+      toast.success("Bild ausgewählt");
+    }
+  };
+
+  const displayImage = uploadedImageFile 
+    ? URL.createObjectURL(uploadedImageFile) 
+    : generatedImageBase64 
+    ? `data:image/png;base64,${generatedImageBase64}` 
+    : null;
+
   return (
     <div className="recipe-form-card" data-testid="recipe-form">
       <div className="form-header">
@@ -524,9 +563,9 @@ function RecipeForm({
       </div>
       
       <form onSubmit={handleSubmit}>
-        {generatedImageBase64 && (
+        {displayImage && (
           <div className="generated-image-preview">
-            <img src={`data:image/png;base64,${generatedImageBase64}`} alt="Generiertes Bild" />
+            <img src={displayImage} alt="Rezeptbild" />
           </div>
         )}
 
@@ -654,15 +693,31 @@ function RecipeForm({
           </div>
 
           <div className="form-group full-width">
-            <button 
-              type="button" 
-              onClick={generateImage} 
-              className="btn-secondary"
-              disabled={generatingImage}
-              data-testid="generate-image-btn"
-            >
-              <Camera size={16} /> {generatingImage ? "Generiere Bild..." : "Bild mit KI generieren"}
-            </button>
+            <label>Rezeptbild</label>
+            <div className="image-upload-section">
+              <button 
+                type="button" 
+                onClick={generateImage} 
+                className="btn-secondary"
+                disabled={generatingImage}
+                data-testid="generate-image-btn"
+              >
+                <Camera size={16} /> {generatingImage ? "Generiere Bild..." : "Mit KI generieren"}
+              </button>
+              
+              <span className="upload-divider">oder</span>
+              
+              <label className="btn-secondary upload-btn">
+                <Upload size={16} /> Eigenes Bild hochladen
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                  data-testid="upload-image-input"
+                />
+              </label>
+            </div>
           </div>
         </div>
 
