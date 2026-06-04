@@ -258,19 +258,16 @@ function HomePage() {
     if (!window.confirm("Rezept wirklich löschen?")) return;
     
     try {
-      // Erst Backend-Delete
+      // Backend-Delete
       await axios.delete(`${API}/recipes/${id}`);
       
-      // Dann sofort aus dem lokalen State entfernen (ohne neu zu laden)
-      setRecipes(prevRecipes => prevRecipes.filter(r => r.id !== id));
-      setFilteredRecipes(prevFiltered => prevFiltered.filter(r => r.id !== id));
+      // Neu laden vom Server für garantierte Konsistenz
+      await fetchRecipes();
       
       toast.success("Rezept gelöscht");
     } catch (error) {
       console.error("Delete error:", error);
       toast.error("Fehler beim Löschen");
-      // Bei Fehler neu laden, um konsistenten State zu haben
-      fetchRecipes();
     }
   };
 
