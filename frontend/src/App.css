@@ -668,21 +668,28 @@
 .recipe-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 1rem;
+  gap: 1rem;
 }
 
 .recipe-name {
   font-family: 'Special Elite', cursive;
   font-size: 1.4rem;
   color: #5a4a3a;
-  flex: 1;
-  margin-right: 0.5rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recipe-actions {
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
+  min-width: fit-content;
 }
 
 .recipe-divider {
@@ -1106,9 +1113,10 @@
 .delete-confirm-inline {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 2rem;
   animation: slideIn 0.2s ease-out;
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 @keyframes slideIn {
@@ -1127,26 +1135,27 @@
   color: #e74c3c;
   font-family: 'Special Elite', monospace;
   font-weight: bold;
-  margin-right: 1.5rem;
+  flex-shrink: 0;
+  padding-right: 1rem;
 }
 
 .btn-confirm-yes,
 .btn-confirm-no {
-  padding: 0.75rem 1.5rem;
+  padding: 0.75rem 1.8rem;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-family: 'Special Elite', monospace;
-  font-size: 1rem;
+  font-size: 1.05rem;
   transition: all 0.2s ease;
-  min-width: 70px;
+  min-width: 80px;
   font-weight: bold;
+  flex-shrink: 0;
 }
 
 .btn-confirm-yes {
   background: #e74c3c;
   color: white;
-  margin-right: 1.5rem;
 }
 
 .btn-confirm-yes:hover {
