@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import "@/App.css";
 import axios from "axios";
 import { Plus, Search, Star, ChefHat, X, Edit2, Trash2, Filter, Sparkles, Upload, Camera, ArrowLeft, Shuffle } from "lucide-react";
@@ -57,34 +57,58 @@ function HomePage() {
   const [generatedImageBase64, setGeneratedImageBase64] = useState(null);
   const [uploadedImageFile, setUploadedImageFile] = useState(null);
 
-  useEffect(() => {
-    fetchRecipes();
-    fetchIngredients();
-  }, []);
+  // Memoized sorted ingredients for sidebar (Performance optimization)
+  const sortedSidebarIngredients = useMemo(() => {
+    return ingredients.sort((a, b) => {
+      const aRecent = recentlyUsedIngredients.indexOf(a.id);
+      const bRecent = recentlyUsedIngredients.indexOf(b.id);
+      
+      if (aRecent !== -1 && bRecent !== -1) return aRecent - bRecent;
+      if (aRecent !== -1) return -1;
+      if (bRecent !== -1) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [ingredients, recentlyUsedIngredients]);
 
-  useEffect(() => {
-    applyFilters();
-  }, [recipes, searchTerm, filters]);
+  // Memoized sorted ingredients for form (Performance optimization)
+  const sortedFormIngredients = useMemo(() => {
+    return ingredients.sort((a, b) => {
+      const aSelected = formData.ingredient_ids.includes(a.id);
+      const bSelected = formData.ingredient_ids.includes(b.id);
+      
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      
+      const aRecent = recentlyUsedIngredients.indexOf(a.id);
+      const bRecent = recentlyUsedIngredients.indexOf(b.id);
+      
+      if (aRecent !== -1 && bRecent !== -1) return aRecent - bRecent;
+      if (aRecent !== -1) return -1;
+      if (bRecent !== -1) return 1;
+      
+      return a.name.localeCompare(b.name);
+    });
+  }, [ingredients, formData.ingredient_ids, recentlyUsedIngredients]);
 
-  const fetchRecipes = async () => {
+  const fetchRecipes = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/recipes`);
       setRecipes(response.data);
     } catch (error) {
       toast.error("Fehler beim Laden der Rezepte");
     }
-  };
+  }, []);
 
-  const fetchIngredients = async () => {
+  const fetchIngredients = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/ingredients`);
       setIngredients(response.data);
     } catch (error) {
       toast.error("Fehler beim Laden der Zutaten");
     }
-  };
+  }, []);
 
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     let filtered = [...recipes];
 
     if (searchTerm) {
@@ -106,7 +130,16 @@ function HomePage() {
     }
 
     setFilteredRecipes(filtered);
-  };
+  }, [recipes, searchTerm, filters]);
+
+  useEffect(() => {
+    fetchRecipes();
+    fetchIngredients();
+  }, [fetchRecipes, fetchIngredients]);
+
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters]);
 
   const generateInstructions = async () => {
     if (!formData.name || formData.ingredient_ids.length === 0) {
@@ -225,7 +258,9 @@ function HomePage() {
             await axios.post(`${API}/recipes/${recipeId}/upload-image`, formData);
           }
         } catch (err) {
-          console.error("Image upload failed:", err);
+          if (process.env.NODE_ENV === 'development') {
+            console.error("Image upload failed:", err);
+          }
           toast.error("Bild konnte nicht hochgeladen werden");
         }
       }
@@ -266,7 +301,9 @@ function HomePage() {
       
       toast.success("Rezept gelöscht");
     } catch (error) {
-      console.error("Delete error:", error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error("Delete error:", error);
+      }
       toast.error("Fehler beim Löschen");
     }
   };
@@ -425,7 +462,10 @@ function HomePage() {
         setMatchedRecipes(response.data);
         setShowIngredientMatch(true);
       } catch (error) {
-        console.error("Error filtering recipes:", error);
+        // Error handling without console in production
+        if (process.env.NODE_ENV === 'development') {
+          console.error("Error filtering recipes:", error);
+        }
       }
     };
 
@@ -519,18 +559,7 @@ function HomePage() {
           <div className="ingredient-matcher">
             <label className="section-label">Rezepte nach Zutaten filtern</label>
             <div className="ingredient-list">
-              {ingredients
-                .sort((a, b) => {
-                  // Sort: recently used first, then alphabetically
-                  const aRecent = recentlyUsedIngredients.indexOf(a.id);
-                  const bRecent = recentlyUsedIngredients.indexOf(b.id);
-                  
-                  if (aRecent !== -1 && bRecent !== -1) return aRecent - bRecent;
-                  if (aRecent !== -1) return -1;
-                  if (bRecent !== -1) return 1;
-                  return a.name.localeCompare(b.name);
-                })
-                .map(ing => (
+              {sortedSidebarIngredients.map(ing => (
                   <div key={ing.id} className="ingredient-checkbox-wrapper">
                     {deletingIngredientId === ing.id ? (
                       <div className="ingredient-delete-confirm">
@@ -615,6 +644,7 @@ function HomePage() {
               setFormData={setFormData}
               editingRecipe={editingRecipe}
               ingredients={ingredients}
+              sortedFormIngredients={sortedFormIngredients}
               newIngredient={newIngredient}
               setNewIngredient={setNewIngredient}
               addIngredient={addIngredient}
@@ -693,7 +723,7 @@ function HomePage() {
 
 // ============ RECIPE FORM COMPONENT ============
 function RecipeForm({
-  formData, setFormData, editingRecipe, ingredients, newIngredient, setNewIngredient,
+  formData, setFormData, editingRecipe, ingredients, sortedFormIngredients, newIngredient, setNewIngredient,
   addIngredient, toggleIngredient, updateIngredientAmount, handleSubmit, resetForm,
   generateInstructions, generateImage, generatingInstructions, generatingImage, generatedImageBase64,
   uploadedImageFile, setUploadedImageFile, filteredIngredients, handleIngredientSearch, selectIngredient,
@@ -840,27 +870,7 @@ function RecipeForm({
               )}
             </div>
             <div className="ingredient-tags">
-              {ingredients
-                .sort((a, b) => {
-                  // Priority 1: Selected ingredients first
-                  const aSelected = formData.ingredient_ids.includes(a.id);
-                  const bSelected = formData.ingredient_ids.includes(b.id);
-                  
-                  if (aSelected && !bSelected) return -1;
-                  if (!aSelected && bSelected) return 1;
-                  
-                  // Priority 2: Recently used (among non-selected)
-                  const aRecent = recentlyUsedIngredients.indexOf(a.id);
-                  const bRecent = recentlyUsedIngredients.indexOf(b.id);
-                  
-                  if (aRecent !== -1 && bRecent !== -1) return aRecent - bRecent;
-                  if (aRecent !== -1) return -1;
-                  if (bRecent !== -1) return 1;
-                  
-                  // Priority 3: Alphabetically
-                  return a.name.localeCompare(b.name);
-                })
-                .map((ing, idx) => {
+              {sortedFormIngredients.map((ing, idx) => {
                 const isSelected = formData.ingredient_ids.includes(ing.id);
                 const selectedIdx = formData.ingredient_ids.indexOf(ing.id);
                 return (
@@ -1108,11 +1118,7 @@ function RecipeDetailPage() {
   const [checkedIngredients, setCheckedIngredients] = useState({});
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchRecipe();
-  }, [id, location.key]);
-
-  const fetchRecipe = async () => {
+  const fetchRecipe = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/recipes/${id}`);
       setRecipe(response.data);
@@ -1121,7 +1127,11 @@ function RecipeDetailPage() {
       toast.error("Rezept nicht gefunden");
       navigate("/");
     }
-  };
+  }, [id, navigate]);
+
+  useEffect(() => {
+    fetchRecipe();
+  }, [fetchRecipe, location.key]);
 
   const toggleIngredient = (ingId) => {
     setCheckedIngredients(prev => ({
@@ -1225,11 +1235,7 @@ function DiscoverPage() {
   const [randomRecipes, setRandomRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchRandomRecipes();
-  }, []);
-
-  const fetchRandomRecipes = async () => {
+  const fetchRandomRecipes = useCallback(async () => {
     setLoading(true);
     try {
       const response = await axios.get(`${API}/recipes/random?count=6`);
@@ -1239,7 +1245,11 @@ function DiscoverPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchRandomRecipes();
+  }, [fetchRandomRecipes]);
 
   const handleRating = async (recipeId, rating) => {
     try {
