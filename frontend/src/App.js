@@ -1,13 +1,28 @@
 import { useState, useEffect } from "react";
 import "@/App.css";
 import axios from "axios";
-import { Plus, Search, Star, ChefHat, X, Edit2, Trash2, Filter } from "lucide-react";
+import { Plus, Search, Star, ChefHat, X, Edit2, Trash2, Filter, Sparkles, Upload, Camera, ArrowLeft, Shuffle } from "lucide-react";
 import { toast } from "sonner";
+import { BrowserRouter, Routes, Route, useNavigate, useParams, Link } from "react-router-dom";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/recipe/:id" element={<RecipeDetailPage />} />
+        <Route path="/discover" element={<DiscoverPage />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+// ============ HOME PAGE ============
+function HomePage() {
+  const navigate = useNavigate();
   const [recipes, setRecipes] = useState([]);
   const [ingredients, setIngredients] = useState([]);
   const [filteredRecipes, setFilteredRecipes] = useState([]);
@@ -20,7 +35,9 @@ function App() {
   const [filters, setFilters] = useState({
     minRating: 0,
     maxCalories: "",
-    minCalories: ""
+    minCalories: "",
+    maxProtein: "",
+    minProtein: ""
   });
   const [newIngredient, setNewIngredient] = useState("");
   const [formData, setFormData] = useState({
@@ -29,8 +46,13 @@ function App() {
     protein: "",
     carbs: "",
     fat: "",
-    ingredient_ids: []
+    ingredient_ids: [],
+    ingredient_amounts: [],
+    instructions: ""
   });
+  const [generatingInstructions, setGeneratingInstructions] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [generatedImageBase64, setGeneratedImageBase64] = useState(null);
 
   useEffect(() => {
     fetchRecipes();
@@ -80,7 +102,66 @@ function App() {
       filtered = filtered.filter(r => r.calories <= parseInt(filters.maxCalories));
     }
 
+    if (filters.minProtein) {
+      filtered = filtered.filter(r => r.protein >= parseInt(filters.minProtein));
+    }
+
+    if (filters.maxProtein) {
+      filtered = filtered.filter(r => r.protein <= parseInt(filters.maxProtein));
+    }
+
     setFilteredRecipes(filtered);
+  };
+
+  const generateInstructions = async () => {
+    if (!formData.name || formData.ingredient_ids.length === 0) {
+      toast.error("Bitte Namen und Zutaten angeben");
+      return;
+    }
+
+    setGeneratingInstructions(true);
+    try {
+      const ingredientsData = formData.ingredient_ids.map((id, idx) => {
+        const ing = ingredients.find(i => i.id === id);
+        return {
+          name: ing?.name || "",
+          amount: formData.ingredient_amounts[idx] || ""
+        };
+      });
+
+      const response = await axios.post(`${API}/recipes/generate-instructions`, {
+        recipe_name: formData.name,
+        ingredients: ingredientsData
+      });
+
+      setFormData({ ...formData, instructions: response.data.instructions });
+      toast.success("Kochanleitung erstellt!");
+    } catch (error) {
+      toast.error("Fehler bei der KI-Generierung");
+    } finally {
+      setGeneratingInstructions(false);
+    }
+  };
+
+  const generateImage = async () => {
+    if (!formData.name) {
+      toast.error("Bitte Rezeptnamen angeben");
+      return;
+    }
+
+    setGeneratingImage(true);
+    try {
+      const response = await axios.post(`${API}/recipes/generate-image`, {
+        recipe_name: formData.name
+      });
+
+      setGeneratedImageBase64(response.data.image_base64);
+      toast.success("Bild erstellt!");
+    } catch (error) {
+      toast.error("Fehler bei der Bild-Generierung");
+    } finally {
+      setGeneratingImage(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -88,11 +169,6 @@ function App() {
     
     if (!formData.name.trim()) {
       toast.error("Name ist erforderlich");
-      return;
-    }
-
-    if (formData.calories < 0 || formData.protein < 0 || formData.carbs < 0 || formData.fat < 0) {
-      toast.error("Nährwerte müssen positiv sein");
       return;
     }
 
@@ -105,12 +181,28 @@ function App() {
         fat: parseInt(formData.fat) || 0
       };
 
+      let recipeId;
       if (editingRecipe) {
         await axios.put(`${API}/recipes/${editingRecipe.id}`, payload);
+        recipeId = editingRecipe.id;
         toast.success("Rezept aktualisiert");
       } else {
-        await axios.post(`${API}/recipes`, payload);
+        const response = await axios.post(`${API}/recipes`, payload);
+        recipeId = response.data.id;
         toast.success("Rezept erstellt");
+      }
+
+      // Upload generated image if exists
+      if (generatedImageBase64 && recipeId) {
+        try {
+          const blob = await fetch(`data:image/png;base64,${generatedImageBase64}`).then(r => r.blob());
+          const file = new File([blob], "generated.png", { type: "image/png" });
+          const formData = new FormData();
+          formData.append("file", file);
+          await axios.post(`${API}/recipes/${recipeId}/upload-image`, formData);
+        } catch (err) {
+          console.error("Image upload failed:", err);
+        }
       }
 
       fetchRecipes();
@@ -128,9 +220,12 @@ function App() {
       protein: recipe.protein,
       carbs: recipe.carbs,
       fat: recipe.fat,
-      ingredient_ids: recipe.ingredients.map(i => i.ingredient_id)
+      ingredient_ids: recipe.ingredients.map(i => i.ingredient_id),
+      ingredient_amounts: recipe.ingredients.map(i => i.amount || ""),
+      instructions: recipe.instructions || ""
     });
     setShowForm(true);
+    setGeneratedImageBase64(null);
   };
 
   const handleDelete = async (id) => {
@@ -165,9 +260,13 @@ function App() {
   };
 
   const resetForm = () => {
-    setFormData({ name: "", calories: "", protein: "", carbs: "", fat: "", ingredient_ids: [] });
+    setFormData({ 
+      name: "", calories: "", protein: "", carbs: "", fat: "", 
+      ingredient_ids: [], ingredient_amounts: [], instructions: "" 
+    });
     setEditingRecipe(null);
     setShowForm(false);
+    setGeneratedImageBase64(null);
   };
 
   const addIngredient = async () => {
@@ -184,12 +283,29 @@ function App() {
   };
 
   const toggleIngredient = (ingId) => {
-    setFormData(prev => ({
-      ...prev,
-      ingredient_ids: prev.ingredient_ids.includes(ingId)
-        ? prev.ingredient_ids.filter(id => id !== ingId)
-        : [...prev.ingredient_ids, ingId]
-    }));
+    const currentIds = formData.ingredient_ids;
+    const currentAmounts = formData.ingredient_amounts;
+    
+    if (currentIds.includes(ingId)) {
+      const idx = currentIds.indexOf(ingId);
+      setFormData({
+        ...formData,
+        ingredient_ids: currentIds.filter((_, i) => i !== idx),
+        ingredient_amounts: currentAmounts.filter((_, i) => i !== idx)
+      });
+    } else {
+      setFormData({
+        ...formData,
+        ingredient_ids: [...currentIds, ingId],
+        ingredient_amounts: [...currentAmounts, ""]
+      });
+    }
+  };
+
+  const updateIngredientAmount = (idx, amount) => {
+    const newAmounts = [...formData.ingredient_amounts];
+    newAmounts[idx] = amount;
+    setFormData({ ...formData, ingredient_amounts: newAmounts });
   };
 
   const toggleIngredientSelection = (ingId) => {
@@ -220,19 +336,19 @@ function App() {
 
   return (
     <div className="app-container" data-testid="cookbook-app">
-      {/* Header */}
       <header className="cookbook-header">
         <div className="header-content">
           <h1 className="cookbook-title" data-testid="app-title">
             <ChefHat className="title-icon" />
-            Familien-Kochbuch
+            Kochbuch
           </h1>
+          <Link to="/discover" className="discover-link" data-testid="discover-link">
+            <Shuffle size={20} /> Entdecken
+          </Link>
         </div>
       </header>
 
-      {/* Main Content */}
       <div className="main-content">
-        {/* Sidebar */}
         <aside className="sidebar">
           <button 
             className="btn-primary" 
@@ -242,7 +358,6 @@ function App() {
             <Plus size={20} /> Neues Rezept
           </button>
 
-          {/* Search */}
           <div className="search-section">
             <label className="section-label">Suche</label>
             <div className="search-input-wrapper">
@@ -258,7 +373,6 @@ function App() {
             </div>
           </div>
 
-          {/* Filters */}
           <div className="filter-section">
             <label className="section-label"><Filter size={16} /> Filter</label>
             
@@ -301,9 +415,31 @@ function App() {
                 />
               </div>
             </div>
+
+            <div className="filter-group">
+              <label className="filter-label">Protein (g)</label>
+              <div className="filter-range">
+                <input
+                  type="number"
+                  placeholder="Min"
+                  value={filters.minProtein}
+                  onChange={(e) => setFilters({...filters, minProtein: e.target.value})}
+                  className="filter-input"
+                  data-testid="min-protein-input"
+                />
+                <span>-</span>
+                <input
+                  type="number"
+                  placeholder="Max"
+                  value={filters.maxProtein}
+                  onChange={(e) => setFilters({...filters, maxProtein: e.target.value})}
+                  className="filter-input"
+                  data-testid="max-protein-input"
+                />
+              </div>
+            </div>
           </div>
 
-          {/* Ingredient Matcher */}
           <div className="ingredient-matcher">
             <label className="section-label">Rezepte nach Zutaten finden</label>
             <div className="ingredient-list">
@@ -328,118 +464,28 @@ function App() {
           </div>
         </aside>
 
-        {/* Content Area */}
         <main className="content-area">
-          {/* Recipe Form */}
           {showForm && (
-            <div className="recipe-form-card" data-testid="recipe-form">
-              <div className="form-header">
-                <h2>{editingRecipe ? "Rezept bearbeiten" : "Neues Rezept"}</h2>
-                <button onClick={resetForm} className="btn-close" data-testid="close-form-btn">
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <form onSubmit={handleSubmit}>
-                <div className="form-grid">
-                  <div className="form-group full-width">
-                    <label>Rezeptname *</label>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={(e) => setFormData({...formData, name: e.target.value})}
-                      required
-                      data-testid="recipe-name-input"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Kalorien</label>
-                    <input
-                      type="number"
-                      value={formData.calories}
-                      onChange={(e) => setFormData({...formData, calories: e.target.value})}
-                      min="0"
-                      data-testid="calories-input"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Protein (g)</label>
-                    <input
-                      type="number"
-                      value={formData.protein}
-                      onChange={(e) => setFormData({...formData, protein: e.target.value})}
-                      min="0"
-                      data-testid="protein-input"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Kohlenhydrate (g)</label>
-                    <input
-                      type="number"
-                      value={formData.carbs}
-                      onChange={(e) => setFormData({...formData, carbs: e.target.value})}
-                      min="0"
-                      data-testid="carbs-input"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Fett (g)</label>
-                    <input
-                      type="number"
-                      value={formData.fat}
-                      onChange={(e) => setFormData({...formData, fat: e.target.value})}
-                      min="0"
-                      data-testid="fat-input"
-                    />
-                  </div>
-
-                  <div className="form-group full-width">
-                    <label>Zutaten</label>
-                    <div className="ingredient-add">
-                      <input
-                        type="text"
-                        placeholder="Neue Zutat..."
-                        value={newIngredient}
-                        onChange={(e) => setNewIngredient(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addIngredient())}
-                        data-testid="new-ingredient-input"
-                      />
-                      <button type="button" onClick={addIngredient} className="btn-add" data-testid="add-ingredient-btn">
-                        <Plus size={18} />
-                      </button>
-                    </div>
-                    <div className="ingredient-tags">
-                      {ingredients.map(ing => (
-                        <label key={ing.id} className="ingredient-tag">
-                          <input
-                            type="checkbox"
-                            checked={formData.ingredient_ids.includes(ing.id)}
-                            onChange={() => toggleIngredient(ing.id)}
-                          />
-                          <span>{ing.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="form-actions">
-                  <button type="submit" className="btn-primary" data-testid="submit-recipe-btn">
-                    {editingRecipe ? "Aktualisieren" : "Erstellen"}
-                  </button>
-                  <button type="button" onClick={resetForm} className="btn-secondary" data-testid="cancel-btn">
-                    Abbrechen
-                  </button>
-                </div>
-              </form>
-            </div>
+            <RecipeForm 
+              formData={formData}
+              setFormData={setFormData}
+              editingRecipe={editingRecipe}
+              ingredients={ingredients}
+              newIngredient={newIngredient}
+              setNewIngredient={setNewIngredient}
+              addIngredient={addIngredient}
+              toggleIngredient={toggleIngredient}
+              updateIngredientAmount={updateIngredientAmount}
+              handleSubmit={handleSubmit}
+              resetForm={resetForm}
+              generateInstructions={generateInstructions}
+              generateImage={generateImage}
+              generatingInstructions={generatingInstructions}
+              generatingImage={generatingImage}
+              generatedImageBase64={generatedImageBase64}
+            />
           )}
 
-          {/* Matched Recipes Display */}
           {showIngredientMatch && matchedRecipes.length > 0 && (
             <div className="matched-recipes-section" data-testid="matched-recipes">
               <div className="section-header">
@@ -458,13 +504,13 @@ function App() {
                     onCooked={handleCooked}
                     onRate={handleRating}
                     showMissingIngredients={true}
+                    navigate={navigate}
                   />
                 ))}
               </div>
             </div>
           )}
 
-          {/* All Recipes */}
           {!showIngredientMatch && (
             <div className="recipes-section">
               <h2 className="section-header">Rezepte ({filteredRecipes.length})</h2>
@@ -477,6 +523,7 @@ function App() {
                     onDelete={handleDelete}
                     onCooked={handleCooked}
                     onRate={handleRating}
+                    navigate={navigate}
                   />
                 ))}
               </div>
@@ -493,82 +540,427 @@ function App() {
   );
 }
 
-// Recipe Card Component
-function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIngredients }) {
+// ============ RECIPE FORM COMPONENT ============
+function RecipeForm({
+  formData, setFormData, editingRecipe, ingredients, newIngredient, setNewIngredient,
+  addIngredient, toggleIngredient, updateIngredientAmount, handleSubmit, resetForm,
+  generateInstructions, generateImage, generatingInstructions, generatingImage, generatedImageBase64
+}) {
   return (
-    <div className="recipe-card" data-testid={`recipe-card-${recipe.id}`}>
-      <div className="recipe-card-header">
-        <h3 className="recipe-name" data-testid="recipe-name">{recipe.name}</h3>
-        <div className="recipe-actions">
-          <button onClick={() => onEdit(recipe)} className="btn-icon" data-testid="edit-recipe-btn">
-            <Edit2 size={16} />
-          </button>
-          <button onClick={() => onDelete(recipe.id)} className="btn-icon" data-testid="delete-recipe-btn">
-            <Trash2 size={16} />
-          </button>
-        </div>
+    <div className="recipe-form-card" data-testid="recipe-form">
+      <div className="form-header">
+        <h2>{editingRecipe ? "Rezept bearbeiten" : "Neues Rezept"}</h2>
+        <button onClick={resetForm} className="btn-close" data-testid="close-form-btn">
+          <X size={20} />
+        </button>
       </div>
+      
+      <form onSubmit={handleSubmit}>
+        {generatedImageBase64 && (
+          <div className="generated-image-preview">
+            <img src={`data:image/png;base64,${generatedImageBase64}`} alt="Generiertes Bild" />
+          </div>
+        )}
 
-      <div className="recipe-divider"></div>
+        <div className="form-grid">
+          <div className="form-group full-width">
+            <label>Rezeptname *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              required
+              data-testid="recipe-name-input"
+            />
+          </div>
 
-      <div className="recipe-nutrients" data-testid="recipe-nutrients">
-        <div className="nutrient-item">
-          <span className="nutrient-label">Kalorien</span>
-          <span className="nutrient-value">{recipe.calories}</span>
-        </div>
-        <div className="nutrient-item">
-          <span className="nutrient-label">Protein</span>
-          <span className="nutrient-value">{recipe.protein}g</span>
-        </div>
-        <div className="nutrient-item">
-          <span className="nutrient-label">Kohlenhydrate</span>
-          <span className="nutrient-value">{recipe.carbs}g</span>
-        </div>
-        <div className="nutrient-item">
-          <span className="nutrient-label">Fett</span>
-          <span className="nutrient-value">{recipe.fat}g</span>
-        </div>
-      </div>
+          <div className="form-group">
+            <label>Kalorien</label>
+            <input
+              type="number"
+              value={formData.calories}
+              onChange={(e) => setFormData({...formData, calories: e.target.value})}
+              min="0"
+              data-testid="calories-input"
+            />
+          </div>
 
-      {recipe.ingredients && recipe.ingredients.length > 0 && (
-        <div className="recipe-ingredients" data-testid="recipe-ingredients">
-          <div className="ingredients-label">Zutaten:</div>
-          <div className="ingredients-tags">
-            {recipe.ingredients.map((ing, idx) => (
-              <span key={idx} className="ingredient-badge">{ing.ingredient_name}</span>
-            ))}
+          <div className="form-group">
+            <label>Protein (g)</label>
+            <input
+              type="number"
+              value={formData.protein}
+              onChange={(e) => setFormData({...formData, protein: e.target.value})}
+              min="0"
+              data-testid="protein-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Kohlenhydrate (g)</label>
+            <input
+              type="number"
+              value={formData.carbs}
+              onChange={(e) => setFormData({...formData, carbs: e.target.value})}
+              min="0"
+              data-testid="carbs-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Fett (g)</label>
+            <input
+              type="number"
+              value={formData.fat}
+              onChange={(e) => setFormData({...formData, fat: e.target.value})}
+              min="0"
+              data-testid="fat-input"
+            />
+          </div>
+
+          <div className="form-group full-width">
+            <label>Zutaten</label>
+            <div className="ingredient-add">
+              <input
+                type="text"
+                placeholder="Neue Zutat..."
+                value={newIngredient}
+                onChange={(e) => setNewIngredient(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addIngredient())}
+                data-testid="new-ingredient-input"
+              />
+              <button type="button" onClick={addIngredient} className="btn-add" data-testid="add-ingredient-btn">
+                <Plus size={18} />
+              </button>
+            </div>
+            <div className="ingredient-tags">
+              {ingredients.map((ing, idx) => {
+                const isSelected = formData.ingredient_ids.includes(ing.id);
+                const selectedIdx = formData.ingredient_ids.indexOf(ing.id);
+                return (
+                  <div key={ing.id} className="ingredient-tag-with-amount">
+                    <label className="ingredient-tag">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleIngredient(ing.id)}
+                      />
+                      <span>{ing.name}</span>
+                    </label>
+                    {isSelected && (
+                      <input
+                        type="text"
+                        placeholder="Menge (z.B. 200g)"
+                        value={formData.ingredient_amounts[selectedIdx] || ""}
+                        onChange={(e) => updateIngredientAmount(selectedIdx, e.target.value)}
+                        className="amount-input"
+                        data-testid={`amount-input-${selectedIdx}`}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="form-group full-width">
+            <div className="label-with-action">
+              <label>Kochanleitung</label>
+              <button 
+                type="button" 
+                onClick={generateInstructions} 
+                className="btn-ai"
+                disabled={generatingInstructions}
+                data-testid="generate-instructions-btn"
+              >
+                <Sparkles size={16} /> {generatingInstructions ? "Erstelle..." : "KI generieren"}
+              </button>
+            </div>
+            <textarea
+              value={formData.instructions}
+              onChange={(e) => setFormData({...formData, instructions: e.target.value})}
+              rows="6"
+              placeholder="Beschreiben Sie die Zubereitungsschritte..."
+              data-testid="instructions-input"
+            />
+          </div>
+
+          <div className="form-group full-width">
+            <button 
+              type="button" 
+              onClick={generateImage} 
+              className="btn-secondary"
+              disabled={generatingImage}
+              data-testid="generate-image-btn"
+            >
+              <Camera size={16} /> {generatingImage ? "Generiere Bild..." : "Bild mit KI generieren"}
+            </button>
           </div>
         </div>
-      )}
 
-      {showMissingIngredients && recipe.missing_ingredients && recipe.missing_ingredients.length > 0 && (
-        <div className="missing-ingredients">
-          <span className="missing-label">Fehlend ({recipe.missing_count}):</span>
-          <span className="missing-list">{recipe.missing_ingredients.join(", ")}</span>
+        <div className="form-actions">
+          <button type="submit" className="btn-primary" data-testid="submit-recipe-btn">
+            {editingRecipe ? "Aktualisieren" : "Erstellen"}
+          </button>
+          <button type="button" onClick={resetForm} className="btn-secondary" data-testid="cancel-btn">
+            Abbrechen
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ============ RECIPE CARD COMPONENT ============
+function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIngredients, navigate }) {
+  return (
+    <div 
+      className="recipe-card" 
+      data-testid={`recipe-card-${recipe.id}`}
+      onClick={() => navigate(`/recipe/${recipe.id}`)}
+      style={{ cursor: 'pointer' }}
+    >
+      {recipe.image_url && (
+        <div className="recipe-card-image">
+          <img src={`${API}/recipes/${recipe.id}/image`} alt={recipe.name} />
         </div>
       )}
-
-      <div className="recipe-divider"></div>
-
-      <div className="recipe-footer">
-        <div className="rating-stars" data-testid="rating-stars">
-          {[1, 2, 3, 4, 5].map(star => (
-            <Star
-              key={star}
-              size={20}
-              className={`star ${star <= recipe.rating ? 'star-filled' : ''}`}
-              onClick={() => onRate(recipe.id, star)}
-              data-testid={`star-${star}`}
-            />
-          ))}
+      
+      <div className="recipe-card-content">
+        <div className="recipe-card-header">
+          <h3 className="recipe-name" data-testid="recipe-name">{recipe.name}</h3>
+          <div className="recipe-actions" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => onEdit(recipe)} className="btn-icon" data-testid="edit-recipe-btn">
+              <Edit2 size={16} />
+            </button>
+            <button onClick={() => onDelete(recipe.id)} className="btn-icon" data-testid="delete-recipe-btn">
+              <Trash2 size={16} />
+            </button>
+          </div>
         </div>
-        <button 
-          onClick={() => onCooked(recipe)} 
-          className="btn-cooked"
-          data-testid="cooked-btn"
-        >
-          <ChefHat size={16} /> Gekocht
+
+        <div className="recipe-divider"></div>
+
+        <div className="recipe-nutrients" data-testid="recipe-nutrients">
+          <div className="nutrient-item">
+            <span className="nutrient-label">Kalorien</span>
+            <span className="nutrient-value">{recipe.calories}</span>
+          </div>
+          <div className="nutrient-item">
+            <span className="nutrient-label">Protein</span>
+            <span className="nutrient-value">{recipe.protein}g</span>
+          </div>
+          <div className="nutrient-item">
+            <span className="nutrient-label">Kohlenhydrate</span>
+            <span className="nutrient-value">{recipe.carbs}g</span>
+          </div>
+          <div className="nutrient-item">
+            <span className="nutrient-label">Fett</span>
+            <span className="nutrient-value">{recipe.fat}g</span>
+          </div>
+        </div>
+
+        {showMissingIngredients && recipe.missing_ingredients && recipe.missing_ingredients.length > 0 && (
+          <div className="missing-ingredients">
+            <span className="missing-label">Fehlend ({recipe.missing_count}):</span>
+            <span className="missing-list">{recipe.missing_ingredients.join(", ")}</span>
+          </div>
+        )}
+
+        <div className="recipe-divider"></div>
+
+        <div className="recipe-footer" onClick={(e) => e.stopPropagation()}>
+          <div className="rating-stars" data-testid="rating-stars">
+            {[1, 2, 3, 4, 5].map(star => (
+              <Star
+                key={star}
+                size={20}
+                className={`star ${star <= recipe.rating ? 'star-filled' : ''}`}
+                onClick={() => onRate(recipe.id, star)}
+                data-testid={`star-${star}`}
+              />
+            ))}
+          </div>
+          <button 
+            onClick={() => onCooked(recipe)} 
+            className="btn-cooked"
+            data-testid="cooked-btn"
+          >
+            <ChefHat size={16} /> Gekocht
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ RECIPE DETAIL PAGE ============
+function RecipeDetailPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [recipe, setRecipe] = useState(null);
+  const [checkedIngredients, setCheckedIngredients] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRecipe();
+  }, [id]);
+
+  const fetchRecipe = async () => {
+    try {
+      const response = await axios.get(`${API}/recipes/${id}`);
+      setRecipe(response.data);
+      setLoading(false);
+    } catch (error) {
+      toast.error("Rezept nicht gefunden");
+      navigate("/");
+    }
+  };
+
+  const toggleIngredient = (ingId) => {
+    setCheckedIngredients(prev => ({
+      ...prev,
+      [ingId]: !prev[ingId]
+    }));
+  };
+
+  if (loading) {
+    return <div className="loading">Lädt...</div>;
+  }
+
+  if (!recipe) {
+    return null;
+  }
+
+  return (
+    <div className="recipe-detail-page">
+      <header className="detail-header">
+        <button onClick={() => navigate("/")} className="back-button" data-testid="back-btn">
+          <ArrowLeft size={20} /> Zurück
         </button>
+        <h1 className="detail-title">{recipe.name}</h1>
+      </header>
+
+      {recipe.image_url && (
+        <div className="detail-hero-image" data-testid="recipe-image">
+          <img src={`${API}/recipes/${id}/image`} alt={recipe.name} />
+        </div>
+      )}
+
+      <div className="detail-content">
+        <div className="detail-section">
+          <h2>Zutaten</h2>
+          <div className="ingredients-checklist" data-testid="ingredients-list">
+            {recipe.ingredients.map((ing) => (
+              <label key={ing.ingredient_id} className="ingredient-check-item">
+                <input
+                  type="checkbox"
+                  checked={checkedIngredients[ing.ingredient_id] || false}
+                  onChange={() => toggleIngredient(ing.ingredient_id)}
+                  data-testid={`ingredient-check-${ing.ingredient_id}`}
+                />
+                <span className={checkedIngredients[ing.ingredient_id] ? 'checked' : ''}>
+                  {ing.amount && `${ing.amount} `}{ing.ingredient_name}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="nutrients-detail">
+            <h3>Nährwerte</h3>
+            <div className="nutrients-grid">
+              <div><strong>Kalorien:</strong> {recipe.calories}</div>
+              <div><strong>Protein:</strong> {recipe.protein}g</div>
+              <div><strong>Kohlenhydrate:</strong> {recipe.carbs}g</div>
+              <div><strong>Fett:</strong> {recipe.fat}g</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="detail-section">
+          <h2>Zubereitung</h2>
+          <div className="instructions-text" data-testid="instructions-text">
+            {recipe.instructions || "Keine Anleitung vorhanden"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ DISCOVER PAGE ============
+function DiscoverPage() {
+  const navigate = useNavigate();
+  const [randomRecipes, setRandomRecipes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRandomRecipes();
+  }, []);
+
+  const fetchRandomRecipes = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API}/recipes/random?count=6`);
+      setRandomRecipes(response.data);
+    } catch (error) {
+      toast.error("Fehler beim Laden");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRating = async (recipeId, rating) => {
+    try {
+      await axios.put(`${API}/recipes/${recipeId}`, { rating });
+      toast.success("Bewertung gespeichert");
+      fetchRandomRecipes();
+    } catch (error) {
+      toast.error("Fehler beim Bewerten");
+    }
+  };
+
+  const handleCooked = async (recipe) => {
+    try {
+      await axios.post(`${API}/recipes/${recipe.id}/cooked`);
+      toast.success(`${recipe.name} als gekocht markiert!`);
+    } catch (error) {
+      toast.error("Fehler beim Markieren");
+    }
+  };
+
+  return (
+    <div className="discover-page">
+      <header className="discover-header">
+        <button onClick={() => navigate("/")} className="back-button">
+          <ArrowLeft size={20} /> Zurück
+        </button>
+        <h1 className="discover-title">
+          <Shuffle size={28} /> Zufällige Rezepte
+        </h1>
+        <button onClick={fetchRandomRecipes} className="refresh-button" data-testid="refresh-btn">
+          <Shuffle size={20} /> Neue laden
+        </button>
+      </header>
+
+      <div className="discover-content">
+        {loading ? (
+          <div className="loading">Lädt...</div>
+        ) : (
+          <div className="recipes-grid" data-testid="discover-grid">
+            {randomRecipes.map(recipe => (
+              <RecipeCard 
+                key={recipe.id} 
+                recipe={recipe}
+                onEdit={() => {}}
+                onDelete={() => {}}
+                onCooked={handleCooked}
+                onRate={handleRating}
+                navigate={navigate}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request, UploadFile, File
+from fastapi.responses import JSONResponse, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -9,8 +9,13 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
 import time
+import requests
+import base64
+import asyncio
+from datetime import datetime, timezone
+from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -20,8 +25,14 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# API Key from environment (optional)
+# API Keys
 API_KEY = os.environ.get('API_KEY', '')
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+
+# Object Storage Configuration
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "cookbook-app"
+storage_key = None
 
 # Create the main app
 app = FastAPI()
@@ -29,9 +40,48 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-# Middleware for API key validation (only if API_KEY is set)
+# Initialize object storage
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    try:
+        resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30)
+        resp.raise_for_status()
+        storage_key = resp.json()["storage_key"]
+        logging.info("Object storage initialized successfully")
+        return storage_key
+    except Exception as e:
+        logging.error(f"Storage init failed: {e}")
+        return None
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    """Upload file to storage"""
+    key = init_storage()
+    if not key:
+        raise Exception("Storage not initialized")
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str) -> tuple[bytes, str]:
+    """Download file from storage"""
+    key = init_storage()
+    if not key:
+        raise Exception("Storage not initialized")
+    resp = requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+# Middleware for API key validation
 async def verify_api_key(request: Request, call_next):
-    # Only check /api/sync endpoint and only if API_KEY is configured
     if request.url.path == "/api/sync" and API_KEY:
         x_api_key = request.headers.get("x-api-key")
         if x_api_key != API_KEY:
@@ -54,6 +104,7 @@ class Ingredient(BaseModel):
 class RecipeIngredient(BaseModel):
     ingredient_id: str
     ingredient_name: str
+    amount: str = ""  # New: quantity like "200g", "2 Stück"
 
 class RecipeCreate(BaseModel):
     name: str
@@ -62,6 +113,8 @@ class RecipeCreate(BaseModel):
     carbs: int = Field(ge=0)
     fat: int = Field(ge=0)
     ingredient_ids: List[str] = []
+    ingredient_amounts: List[str] = []  # Parallel array to ingredient_ids
+    instructions: str = ""  # New: cooking instructions
 
 class RecipeUpdate(BaseModel):
     name: Optional[str] = None
@@ -71,6 +124,8 @@ class RecipeUpdate(BaseModel):
     fat: Optional[int] = Field(default=None, ge=0)
     rating: Optional[int] = Field(default=None, ge=0, le=5)
     ingredient_ids: Optional[List[str]] = None
+    ingredient_amounts: Optional[List[str]] = None
+    instructions: Optional[str] = None
 
 class Recipe(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -82,6 +137,8 @@ class Recipe(BaseModel):
     fat: int
     rating: int = 0
     ingredients: List[RecipeIngredient] = []
+    instructions: str = ""
+    image_url: Optional[str] = None  # New: URL or storage path for recipe image
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class SyncQueueEntry(BaseModel):
@@ -95,6 +152,13 @@ class SyncQueueEntry(BaseModel):
     fat: int
     timestamp_cooked: int
 
+class GenerateInstructionsRequest(BaseModel):
+    recipe_name: str
+    ingredients: List[dict]  # [{"name": "Mehl", "amount": "200g"}]
+
+class GenerateImageRequest(BaseModel):
+    recipe_name: str
+
 # ============ INGREDIENTS ENDPOINTS ============
 
 @api_router.post("/ingredients", response_model=Ingredient)
@@ -102,7 +166,6 @@ async def create_ingredient(ingredient: IngredientCreate):
     if not ingredient.name.strip():
         raise HTTPException(status_code=400, detail="Name darf nicht leer sein")
     
-    # Check if ingredient already exists
     existing = await db.ingredients.find_one({"name": ingredient.name.strip()}, {"_id": 0})
     if existing:
         return Ingredient(**existing)
@@ -131,14 +194,16 @@ async def create_recipe(recipe: RecipeCreate):
     if not recipe.name.strip():
         raise HTTPException(status_code=400, detail="Name darf nicht leer sein")
     
-    # Get ingredient details
+    # Get ingredient details with amounts
     ingredients = []
-    for ing_id in recipe.ingredient_ids:
+    for idx, ing_id in enumerate(recipe.ingredient_ids):
         ing = await db.ingredients.find_one({"id": ing_id}, {"_id": 0})
         if ing:
+            amount = recipe.ingredient_amounts[idx] if idx < len(recipe.ingredient_amounts) else ""
             ingredients.append(RecipeIngredient(
                 ingredient_id=ing["id"],
-                ingredient_name=ing["name"]
+                ingredient_name=ing["name"],
+                amount=amount
             ))
     
     recipe_obj = Recipe(
@@ -147,7 +212,8 @@ async def create_recipe(recipe: RecipeCreate):
         protein=recipe.protein,
         carbs=recipe.carbs,
         fat=recipe.fat,
-        ingredients=ingredients
+        ingredients=ingredients,
+        instructions=recipe.instructions
     )
     
     doc = recipe_obj.model_dump()
@@ -159,6 +225,8 @@ async def get_recipes(
     search: Optional[str] = None,
     min_calories: Optional[int] = None,
     max_calories: Optional[int] = None,
+    min_protein: Optional[int] = None,
+    max_protein: Optional[int] = None,
     min_rating: Optional[int] = None,
     ingredient_ids: Optional[str] = None
 ):
@@ -175,6 +243,14 @@ async def get_recipes(
         query["calories"] = query.get("calories", {})
         query["calories"]["$lte"] = max_calories
     
+    if min_protein is not None:
+        query["protein"] = query.get("protein", {})
+        query["protein"]["$gte"] = min_protein
+    
+    if max_protein is not None:
+        query["protein"] = query.get("protein", {})
+        query["protein"]["$lte"] = max_protein
+    
     if min_rating is not None:
         query["rating"] = {"$gte": min_rating}
     
@@ -185,6 +261,18 @@ async def get_recipes(
     recipes = await db.recipes.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return recipes
 
+@api_router.get("/recipes/random")
+async def get_random_recipes(count: int = 6):
+    """Get random recipes for discover page"""
+    pipeline = [
+        {"$sample": {"size": count}}
+    ]
+    recipes = await db.recipes.aggregate(pipeline).to_list(count)
+    # Remove _id
+    for recipe in recipes:
+        recipe.pop("_id", None)
+    return recipes
+
 @api_router.get("/recipes/match", response_model=List[dict])
 async def match_recipes_by_ingredients(ingredient_ids: str, max_missing: int = 2):
     """Find recipes that match given ingredients, allowing up to max_missing ingredients to be absent"""
@@ -193,7 +281,6 @@ async def match_recipes_by_ingredients(ingredient_ids: str, max_missing: int = 2
     
     ing_list = ingredient_ids.split(",")
     
-    # Get all recipes
     all_recipes = await db.recipes.find({}, {"_id": 0}).to_list(1000)
     
     matches = []
@@ -204,7 +291,6 @@ async def match_recipes_by_ingredients(ingredient_ids: str, max_missing: int = 2
         if not recipe_ing_ids:
             continue
         
-        # Count how many ingredients match
         matching = set(ing_list) & set(recipe_ing_ids)
         missing_count = len(recipe_ing_ids) - len(matching)
         
@@ -223,7 +309,6 @@ async def match_recipes_by_ingredients(ingredient_ids: str, max_missing: int = 2
                 "match_percentage": int((len(matching) / len(recipe_ing_ids) * 100))
             })
     
-    # Sort by missing count and match percentage
     matches.sort(key=lambda x: (x["missing_count"], -x["match_percentage"]))
     
     return matches
@@ -246,15 +331,20 @@ async def update_recipe(recipe_id: str, recipe_update: RecipeUpdate):
     # Update ingredients if provided
     if "ingredient_ids" in update_data:
         ingredients = []
-        for ing_id in update_data["ingredient_ids"]:
+        amounts = update_data.get("ingredient_amounts", [])
+        for idx, ing_id in enumerate(update_data["ingredient_ids"]):
             ing = await db.ingredients.find_one({"id": ing_id}, {"_id": 0})
             if ing:
+                amount = amounts[idx] if idx < len(amounts) else ""
                 ingredients.append(RecipeIngredient(
                     ingredient_id=ing["id"],
-                    ingredient_name=ing["name"]
+                    ingredient_name=ing["name"],
+                    amount=amount
                 ).model_dump())
         update_data["ingredients"] = ingredients
         del update_data["ingredient_ids"]
+        if "ingredient_amounts" in update_data:
+            del update_data["ingredient_amounts"]
     
     await db.recipes.update_one({"id": recipe_id}, {"$set": update_data})
     
@@ -289,7 +379,125 @@ async def mark_recipe_cooked(recipe_id: str):
     
     return {"message": "Rezept als gekocht markiert", "timestamp": sync_entry.timestamp_cooked}
 
-# ============ SYNC ENDPOINT (for Android App) ============
+# ============ AI FEATURES ============
+
+@api_router.post("/recipes/generate-instructions")
+async def generate_instructions(request: GenerateInstructionsRequest):
+    """Generate cooking instructions using AI"""
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="AI-Funktion nicht konfiguriert")
+    
+    try:
+        # Build ingredient list text
+        ing_text = ", ".join([f"{ing['amount']} {ing['name']}" if ing.get('amount') else ing['name'] 
+                              for ing in request.ingredients])
+        
+        prompt = f"""Erstelle eine detaillierte, deutschsprachige Kochanleitung für das Rezept "{request.recipe_name}" mit folgenden Zutaten: {ing_text}.
+
+Die Anleitung soll:
+- Schritt-für-Schritt formuliert sein
+- Klar und einfach verständlich sein
+- Kochzeiten und Temperaturen angeben
+- Praktische Tipps enthalten
+
+Formatiere die Anleitung in Absätze, nicht als nummerierte Liste."""
+
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=str(uuid.uuid4()),
+            system_message="Du bist ein erfahrener Koch und schreibst präzise Kochanleitungen auf Deutsch."
+        ).with_model("openai", "gpt-5.2")
+        
+        # Use non-streaming for this endpoint
+        result = await chat.send_message(UserMessage(text=prompt))
+        instructions = result.content
+        
+        return {"instructions": instructions}
+        
+    except Exception as e:
+        logging.error(f"Error generating instructions: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler bei der KI-Generierung: {str(e)}")
+
+@api_router.post("/recipes/generate-image")
+async def generate_recipe_image(request: GenerateImageRequest):
+    """Generate recipe image using AI"""
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="AI-Funktion nicht konfiguriert")
+    
+    try:
+        image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
+        
+        prompt = f"Professional food photography of {request.recipe_name}, appetizing plating, natural lighting, high quality, detailed"
+        
+        images = await image_gen.generate_images(
+            prompt=prompt,
+            model="gpt-image-1",
+            number_of_images=1
+        )
+        
+        if not images or len(images) == 0:
+            raise HTTPException(status_code=500, detail="Kein Bild generiert")
+        
+        # Convert to base64
+        image_base64 = base64.b64encode(images[0]).decode('utf-8')
+        
+        return {"image_base64": image_base64, "content_type": "image/png"}
+        
+    except Exception as e:
+        logging.error(f"Error generating image: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler bei der Bild-Generierung: {str(e)}")
+
+# ============ IMAGE UPLOAD ============
+
+@api_router.post("/recipes/{recipe_id}/upload-image")
+async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
+    """Upload image for a recipe"""
+    recipe = await db.recipes.find_one({"id": recipe_id}, {"_id": 0})
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
+    
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Nur Bilddateien sind erlaubt")
+    
+    try:
+        # Read file data
+        data = await file.read()
+        
+        # Generate storage path
+        ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+        path = f"{APP_NAME}/recipes/{recipe_id}/{uuid.uuid4()}.{ext}"
+        
+        # Upload to storage
+        result = put_object(path, data, file.content_type)
+        
+        # Update recipe with image path
+        await db.recipes.update_one(
+            {"id": recipe_id},
+            {"$set": {"image_url": result["path"]}}
+        )
+        
+        return {"message": "Bild hochgeladen", "path": result["path"]}
+        
+    except Exception as e:
+        logging.error(f"Error uploading image: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler beim Upload: {str(e)}")
+
+@api_router.get("/recipes/{recipe_id}/image")
+async def get_recipe_image(recipe_id: str):
+    """Get recipe image"""
+    recipe = await db.recipes.find_one({"id": recipe_id}, {"_id": 0})
+    if not recipe or not recipe.get("image_url"):
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden")
+    
+    try:
+        data, content_type = get_object(recipe["image_url"])
+        return Response(content=data, media_type=content_type)
+    except Exception as e:
+        logging.error(f"Error fetching image: {e}")
+        raise HTTPException(status_code=404, detail="Bild nicht verfügbar")
+
+# ============ SYNC ENDPOINT ============
 
 @api_router.get("/sync", response_model=List[SyncQueueEntry])
 async def sync_cooked_recipes(since: int = 0):
@@ -315,6 +523,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup():
+    try:
+        init_storage()
+        logger.info("Storage initialized")
+    except Exception as e:
+        logger.warning(f"Storage init failed (non-critical): {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
