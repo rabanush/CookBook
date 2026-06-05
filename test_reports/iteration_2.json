@@ -1,0 +1,39 @@
+{
+  "summary": "Root cause identified for 'Fehler beim Hinzufügen der Zutat'. The frontend/.env contains REACT_APP_BACKEND_URL=http://localhost:8001 which is the INTERNAL container address. In the Kubernetes preview environment the user's browser cannot reach localhost:8001 - the browser is the client, not the container - so EVERY axios call (including POST /api/ingredients) fails with a network error, causing the toast 'Fehler beim Hinzufügen der Zutat'. Backend itself is fully functional (verified via curl: POST /api/ingredients returns 200 with new ingredient).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "All API calls (add ingredient, fetch recipes, delete, etc.)",
+        "issue": "REACT_APP_BACKEND_URL=http://localhost:8001 is set to internal container address. Browser cannot reach localhost from preview/production environment. axios POST/GET to ${BACKEND_URL}/api/* fail with network error -> generic toast error 'Fehler beim Hinzufügen der Zutat' is shown. This explains why even console.log debug output appears in the function but the request never succeeds. The Plus button DOES call addIngredient() - it just fails at the axios.post step.",
+        "affected_selectors": ["[data-testid=add-ingredient-btn]", "[data-testid=new-recipe-btn]", "all API-dependent flows"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_1.json"],
+  "action_items": [
+    "FIX: Change /app/frontend/.env REACT_APP_BACKEND_URL to the public preview URL (the original PROTECTED production external URL) OR set it to empty string '' so axios uses relative '/api/...' which the Kubernetes ingress routes to backend:8001. Per the env setup spec: 'All backend API routes are automatically redirected to port 8001 when prefixed with /api'. Using localhost breaks browser-side requests.",
+    "After fixing .env, run: sudo supervisorctl restart frontend (required because .env changed).",
+    "Improve error handling in addIngredient catch block: log error.response?.data and error.message and surface in toast for easier diagnosis (currently swallows real error and only shows generic message).",
+    "Same issue affects ALL the other flows the user reported (create/edit/delete recipe, filter, search, ingredient sidebar) because every one of them depends on axios + BACKEND_URL."
+  ],
+  "critical_code_review_comments": [
+    "App.js is 1318 lines - exceeds 700 line guideline. Split into components/pages files.",
+    "Generic catch blocks (toast.error('Fehler...')) hide root cause from user and developer. Always log error.response status & data in dev.",
+    "displayImage uses URL.createObjectURL without revokeObjectURL -> memory leak on re-render.",
+    "Many useEffect/state updates (selectedIngredients live-search) trigger axios calls without debouncing.",
+    "ingredients.sort() inside useMemo mutates the original array (sort is in-place). Use [...ingredients].sort(...)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "0% (cannot reach backend from browser)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes REACT_APP_BACKEND_URL, re-test the add-ingredient flow: open recipe form -> type ingredient name -> click [data-testid=add-ingredient-btn] -> verify ingredient appears in list and toast says 'hinzugefügt und ausgewählt'. Also retest recipe CRUD, filters, search, and ingredient delete in sidebar.",
+  "rca of the issue": "ROOT CAUSE: frontend/.env REACT_APP_BACKEND_URL=http://localhost:8001 is incorrect for browser-side use. The React app runs in the user's browser; 'localhost' resolves to the user's own machine, not the backend container. STEPS TO REPRODUCE: 1) Open app via preview URL, 2) Click 'Neues Rezept', 3) Type 'Tomate' in new-ingredient-input, 4) Click + button (data-testid=add-ingredient-btn). The handler runs (console.logs would fire if devtools open) but axios.post('http://localhost:8001/api/ingredients') fails with ERR_CONNECTION_REFUSED or CORS error -> catch -> toast 'Fehler beim Hinzufügen der Zutat'. MITIGATION: Restore REACT_APP_BACKEND_URL to the public preview/production URL (PROTECTED_VARIABLE per environment spec) OR set REACT_APP_BACKEND_URL='' so requests go to '/api/...' relative and are routed by Kubernetes ingress. Then sudo supervisorctl restart frontend."
+}
