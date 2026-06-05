@@ -78,11 +78,9 @@ agenthub/agents/youtube/db
 
 memory/test_credentials.md
 
-# Mobile development
-android-sdk/
-.env
-.env.*
-*.env
-credentials.json
-*.key
-.credentials
+# Environment - INCLUDE .env.example but exclude actual .env
+backend/.env
+frontend/.env
+!backend/.env.example
+!frontend/.env.example
+!.env.example
