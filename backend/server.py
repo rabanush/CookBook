@@ -239,12 +239,10 @@ async def get_recipes(
 async def get_random_recipes(count: int = 6):
     """Get random recipes for discover page"""
     pipeline = [
-        {"$sample": {"size": count}}
+        {"$sample": {"size": count}},
+        {"$project": {"_id": 0}}
     ]
     recipes = await db.recipes.aggregate(pipeline).to_list(count)
-    # Remove _id
-    for recipe in recipes:
-        recipe.pop("_id", None)
     return recipes
 
 @api_router.get("/recipes/match", response_model=List[dict])
@@ -357,13 +355,6 @@ async def mark_recipe_cooked(recipe_id: str):
 
 
 
-@api_router.delete("/ingredients/{ingredient_id}")
-async def delete_ingredient(ingredient_id: str):
-    """Delete an ingredient"""
-    result = await db.ingredients.delete_one({"id": ingredient_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Ingredient not found")
-    return {"message": "Zutat gelöscht"}
 
 @api_router.post("/recipes/generate-instructions")
 async def generate_instructions(request: GenerateInstructionsRequest):
@@ -485,7 +476,7 @@ async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
         content = await file.read()
         
         # Save to local filesystem
-        file_path = save_file(recipe_id, content, file.content_type)
+        save_file(recipe_id, content, file.content_type)
         
         # Update recipe with image URL
         image_url = f"/uploads/{recipe_id}.jpg"
@@ -512,56 +503,6 @@ async def get_recipe_image(recipe_id: str):
         logging.error(f"Image retrieval error: {e}")
         raise HTTPException(status_code=500, detail="Fehler beim Laden des Bildes")
     
-    try:
-        # Read file data
-        data = await file.read()
-        
-        # Generate unique storage path (with timestamp to avoid caching issues)
-        ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-        timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
-        path = f"{APP_NAME}/recipes/{recipe_id}/{timestamp}_{uuid.uuid4()}.{ext}"
-        
-        # Upload to storage
-        result = put_object(path, data, file.content_type)
-        
-        # Update recipe with new image path (overwrites old one)
-        await db.recipes.update_one(
-            {"id": recipe_id},
-            {"$set": {
-                "image_url": result["path"],
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }}
-        )
-        
-        return {"message": "Bild hochgeladen", "path": result["path"]}
-        
-    except Exception as e:
-        logging.error(f"Error uploading image: {e}")
-        raise HTTPException(status_code=500, detail=f"Fehler beim Upload: {str(e)}")
-
-@api_router.get("/recipes/{recipe_id}/image")
-async def get_recipe_image(recipe_id: str):
-    """Get recipe image with proper caching headers"""
-    recipe = await db.recipes.find_one({"id": recipe_id}, {"_id": 0})
-    if not recipe or not recipe.get("image_url"):
-        raise HTTPException(status_code=404, detail="Bild nicht gefunden")
-    
-    try:
-        data, content_type = get_object(recipe["image_url"])
-        
-        # Set aggressive caching headers - cache until image_url changes
-        return Response(
-            content=data, 
-            media_type=content_type,
-            headers={
-                "Cache-Control": "public, max-age=31536000, immutable",  # 1 year
-                "ETag": recipe.get("image_url", ""),
-            }
-        )
-    except Exception as e:
-        logging.error(f"Error fetching image: {e}")
-        raise HTTPException(status_code=404, detail="Bild nicht verfügbar")
-
 # ============ SYNC ENDPOINT ============
 
 @api_router.get("/sync", response_model=List[SyncQueueEntry])
@@ -591,11 +532,7 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup():
-    try:
-        init_storage()
-        logger.info("Storage initialized")
-    except Exception as e:
-        logger.warning(f"Storage init failed (non-critical): {e}")
+    logger.info("App started - ready to serve")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
