@@ -85,3 +85,5 @@ memory/test_credentials.md
 .env.*
 *.env
 credentials.json
+
+docker-compose.yml

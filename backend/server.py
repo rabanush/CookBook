@@ -354,8 +354,6 @@ async def mark_recipe_cooked(recipe_id: str):
 # ============ AI FEATURES ============
 
 
-
-
 @api_router.post("/recipes/generate-instructions")
 async def generate_instructions(request: GenerateInstructionsRequest):
     """Generate cooking instructions using AI"""
@@ -397,7 +395,7 @@ Beispiel guter Stil:
 
 Schreibe ohne Nummerierung als fortlaufenden Text."""
 
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         response = await asyncio.to_thread(
             model.generate_content,
             prompt
@@ -411,52 +409,153 @@ Schreibe ohne Nummerierung als fortlaufenden Text."""
         logging.error(f"Error generating instructions: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler bei der KI-Generierung: {str(e)}")
 
+
 @api_router.post("/recipes/generate-image")
 async def generate_recipe_image(request: GenerateImageRequest):
-    """Generate recipe image using AI"""
+    import urllib.request
+    import urllib.error
+    import json
+
     if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Google API Key nicht konfiguriert. Bitte GOOGLE_API_KEY in .env setzen.")
-    
+        raise HTTPException(status_code=500, detail="Google API Key fehlt")
+
     try:
-        # Create a vintage-style prompt that fits the cookbook aesthetic
-        prompt = f"""Erstelle ein Bild von {request.recipe_name} im Stil eines alten Familienkochbuchs. 
-
-Das Bild soll:
-- Warm und einladend wirken
-- Natürliches, weiches Licht haben
-- Auf einer rustikalen Holzoberfläche oder vintage Tischdecke präsentiert sein
-- Einen leicht nostalgischen, zeitlosen Look haben
-- Das Gericht appetitlich und hausgemacht zeigen
-- Erdige, warme Farbtöne bevorzugen (Beigetöne, warmes Braun, sanftes Gelb)
-
-Stil: Professional food photography with vintage aesthetic, soft natural lighting, rustic presentation, warm tones, homemade comfort food look"""
-
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        response = await asyncio.to_thread(
-            model.generate_content,
-            prompt
+        translation_model = genai.GenerativeModel('gemini-2.5-flash')
+        translation_prompt = (
+            f"Translate the German food '{request.recipe_name}' to English. "
+            "Add a short, logical serving context if necessary (e.g., 'in a bowl with milk' for cereal, "
+            "'in a rustic baking dish' for lasagna, 'in a deep bowl' for soup). "
+            "Return ONLY the English description, nothing else."
         )
         
-        # Gemini 2.0 Flash supports text-to-image
-        # Extract image from response if available
-        if response.candidates and len(response.candidates) > 0:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                for part in candidate.content.parts:
-                    if hasattr(part, 'inline_data'):
-                        image_data = part.inline_data.data
-                        return {"image_base64": base64.b64encode(image_data).decode('utf-8'), "content_type": "image/png"}
-        
-        # Fallback: use a placeholder or return error
-        raise HTTPException(status_code=500, detail="Bildgenerierung nicht unterstützt mit diesem Modell")
-        
+        translation_response = await asyncio.to_thread(
+            translation_model.generate_content,
+            translation_prompt
+        )
+        english_recipe_name = translation_response.text.strip()
+
+        prompt = (
+            f"Bright, highly detailed, appetizing food photography of: {english_recipe_name}. "
+            "CRITICAL SCENE SETUP: The food is served in appropriate antique ceramic tableware "
+            "(such as a rustic ceramic plate, or a deep ceramic bowl depending on the food). "
+            "Underneath the tableware is a light-colored vintage fabric napkin, possibly with crochet or lace. "
+            "The napkin and tableware rest on a warm, medium-brown wooden plank table. "
+            "A vintage silver fork or spoon rests on the table. "
+            "BACKGROUND: Softly blurred background showing a bright multi-pane window. "
+            "On the windowsill, there are small terracotta pots containing green kitchen herbs. "
+            "LIGHTING: Soft, diffused, bright daylight coming from the background window. "
+            "High resolution, photorealistic, cinematic food styling."
+        )
+
+        model = "imagen-4.0-fast-generate-001"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict?key={GOOGLE_API_KEY}"
+
+        payload = {
+            "instances": [{"prompt": prompt}],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": "16:9"
+            }
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+
+        response = await asyncio.to_thread(urllib.request.urlopen, req)
+        response_data = json.loads(response.read().decode('utf-8'))
+
+        if 'predictions' in response_data and len(response_data['predictions']) > 0:
+            b64_image = response_data['predictions'][0].get('bytesBase64Encoded')
+            if b64_image:
+                return {"image_base64": b64_image}
+
+        raise HTTPException(status_code=500, detail="Google API lieferte kein Bild zurück.")
+
+    except urllib.error.HTTPError as e:
+        error_msg = e.read().decode('utf-8')
+        raise HTTPException(status_code=500, detail=f"Google API Fehler: {error_msg}")
     except Exception as e:
-        logging.error(f"Error generating image: {e}")
-        raise HTTPException(status_code=500, detail=f"Fehler bei der Bild-Generierung: {str(e)}")
-        
-    except Exception as e:
-        logging.error(f"Error generating image: {e}")
-        raise HTTPException(status_code=500, detail=f"Fehler bei der Bild-Generierung: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fehler bei der Bildgenerierung: {str(e)}")
+
+#@api_router.post("/recipes/generate-image")
+#async def generate_recipe_image(request: GenerateImageRequest):
+#    import urllib.request
+#    import urllib.error
+#    import json
+#    import asyncio
+#
+#    if not GOOGLE_API_KEY:
+#        raise HTTPException(status_code=500, detail="Google API Key fehlt")
+#
+#    try:
+#        prompt = (
+#            f"Professional food photography of {request.recipe_name}. "
+#	    "Widescreen format, landscape orientation, 16:9 aspect ratio. "
+#            "Warm and inviting atmosphere, soft natural lighting, "
+#            "presented on a rustic wooden surface or vintage tablecloth. "
+#            "Lightly nostalgic and timeless look, homemade and appetizing appearance. "
+#            "Prefer earthy, warm color tones such as beige, warm brown, and soft yellow. "
+#            "Style: Vintage aesthetic, rustic presentation, warm tones, homemade comfort food, high resolution."
+#        )
+#
+#        model = "gemini-2.5-flash-image"
+#        url = (
+#            f"https://generativelanguage.googleapis.com/v1beta/models/"
+#            f"{model}:generateContent?key={GOOGLE_API_KEY}"  # ← Variable genutzt
+#        )
+#
+#        payload = {
+#            "contents": [
+#                {
+#                    "parts": [
+#                        {"text": prompt}
+#                    ]
+#                }
+#            ],
+#            "generationConfig": {
+#                "responseModalities": ["IMAGE"]
+#            }
+#        }
+#
+#        req = urllib.request.Request(
+#            url,
+#            data=json.dumps(payload).encode("utf-8"),
+#            headers={"Content-Type": "application/json"},
+#            method="POST"
+#        )
+#
+#        response = await asyncio.to_thread(urllib.request.urlopen, req)
+#        response_data = json.loads(response.read().decode("utf-8"))
+#
+#        candidates = response_data.get("candidates", [])
+#        if candidates:
+#            parts = candidates[0].get("content", {}).get("parts", [])
+#            for part in parts:
+#                if "inlineData" in part:
+#                    b64_image = part["inlineData"].get("data")
+#                    if b64_image:
+#                        return {"image_base64": b64_image}
+#
+#        raise HTTPException(
+#            status_code=500,
+#            detail="Gemini API lieferte kein Bild zurück.")
+#
+#    except urllib.error.HTTPError as e:
+#        error_body = e.read().decode("utf-8")
+#        raise HTTPException(
+#            status_code=500,
+#            detail=f"Google API Fehler: {error_body}"
+#        )
+#    except Exception as e:
+#        raise HTTPException(
+#            status_code=500,
+#            detail=f"Fehler bei der Bildgenerierung: {str(e)}"
+#        )
+
 
 # ============ IMAGE UPLOAD ============
 
