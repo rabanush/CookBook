@@ -84,3 +84,9 @@ frontend/.env
 !backend/.env.example
 !frontend/.env.example
 !.env.example
+.env
+.env.*
+*.env
+credentials.json
+*.key
+.credentials
