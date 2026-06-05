@@ -339,11 +339,19 @@ function HomePage() {
   };
 
   const addIngredient = async () => {
-    if (!newIngredient.trim()) return;
+    console.log("🔧 addIngredient called, newIngredient:", newIngredient);
+    console.log("🔧 API value:", API);
+    
+    if (!newIngredient.trim()) {
+      console.log("❌ Empty ingredient name, returning");
+      return;
+    }
     
     try {
+      console.log("📤 Making POST request to:", `${API}/ingredients`);
       const response = await axios.post(`${API}/ingredients`, { name: newIngredient });
       const newIng = response.data;
+      console.log("✅ Ingredient added:", newIng);
       setIngredients([...ingredients, newIng]);
       
       // Automatically select the new ingredient
