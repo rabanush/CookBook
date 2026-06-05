@@ -4,6 +4,8 @@
 
 ### Variante 1: OHNE API Key (nur Rezepte & Zutaten)
 
+frontend/.env Datei erstellenen
+REACT_APP_BACKEND_URL=URL
 ```bash
 docker-compose up -d
 ```

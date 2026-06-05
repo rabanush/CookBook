@@ -27,7 +27,7 @@ services:
       # Google Gemini API Key (NUR für KI-Features)
       # Ändern Sie den Wert hier ODER setzen Sie die Umgebungsvariable:
       # export GOOGLE_API_KEY=IhrKey && docker-compose up -d
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GOOGLE_API_KEY=
       
       # Optional: API Key für Backend-Sicherheit
       - API_KEY=
