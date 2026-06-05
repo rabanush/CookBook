@@ -1,79 +1,197 @@
-# Kochbuch App
+# 🍳 Kochbuch App - Standalone Deployment
 
-## Schnellstart
+## 🚀 Schnellstart (2 Schritte!)
 
-### Vor dem ersten Start:
+### Variante 1: OHNE API Key (nur Rezepte & Zutaten)
 
 ```bash
-# 1. .env Dateien erstellen (aus Templates)
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-
-# 2. (Optional) Google API Key eintragen
-nano backend/.env
-# Ändern Sie: GOOGLE_API_KEY=IhrKey
-
-# 3. Docker starten
 docker-compose up -d
-
-# 4. App öffnen
-# http://localhost
 ```
 
-## Struktur
+**Fertig!** App läuft auf http://localhost
+
+### Variante 2: MIT API Key (KI-Features)
+
+```bash
+# API Key als Umgebungsvariable setzen
+export GOOGLE_API_KEY=IhrGoogleAPIKey
+docker-compose up -d
+```
+
+**ODER** direkt in `docker-compose.yml` eintragen (Zeile 29):
+
+```yaml
+- GOOGLE_API_KEY=AIzaSy...IhrKeyHier
+```
+
+---
+
+## ✅ Features
+
+**OHNE API Key:**
+- ✅ Rezepte erstellen, bearbeiten, löschen
+- ✅ Zutaten-Management
+- ✅ Filter (Kalorien, Protein, Rating)
+- ✅ Suche
+- ✅ Bilder hochladen
+
+**MIT API Key (optional):**
+- 🤖 KI-generierte Kochanleitungen
+- 🖼️ KI-generierte Rezeptbilder
+
+---
+
+## 🔑 Google API Key
+
+**Nur für KI-Features! Rezepte funktionieren ohne.**
+
+1. **Key holen** (kostenlos): https://aistudio.google.com/apikey
+
+2. **Option A: Als Umgebungsvariable**
+   ```bash
+   export GOOGLE_API_KEY=IhrKey
+   docker-compose up -d
+   ```
+
+3. **Option B: Direkt in docker-compose.yml**
+   Öffne `docker-compose.yml`, Zeile 29:
+   ```yaml
+   - GOOGLE_API_KEY=AIzaSy...IhrKeyHier
+   ```
+
+---
+
+## 📁 Projekt-Struktur
 
 ```
 /app/
-├── backend/
-│   ├── .env.example      # Template (IN GIT)
-│   ├── .env              # Ihre Config (NICHT in Git)
-│   └── ...
-├── frontend/
-│   ├── .env.example      # Template (IN GIT)
-│   ├── .env              # Ihre Config (NICHT in Git)
-│   └── ...
-├── Dockerfile.backend
-├── Dockerfile.frontend
-├── docker-compose.yml
-└── nginx.conf
+├── backend/              # FastAPI Backend
+│   ├── server.py
+│   └── requirements.txt
+├── frontend/             # React Frontend
+│   ├── src/
+│   └── package.json
+├── Dockerfile.backend    # Python Container
+├── Dockerfile.frontend   # React + Nginx Container
+├── docker-compose.yml    # ← EINZIGE Config-Datei!
+├── nginx.conf
+└── README.md
 ```
 
-## .env Dateien in Git?
+**Keine .env Dateien mehr! Alles in docker-compose.yml.**
 
-**NEIN!** Aus Sicherheitsgründen:
-- `.env` Dateien sind in `.gitignore`
-- NUR `.env.example` Templates sind in Git
-- Beim Deployment: Template kopieren und ausfüllen
+---
 
-## Deployment auf Server
+## 🔧 Verwaltung
 
 ```bash
-# 1. Code auf Server
+# Starten
+docker-compose up -d
+
+# Stoppen
+docker-compose down
+
+# Logs ansehen
+docker-compose logs -f
+
+# Neu bauen (nach Code-Änderungen)
+docker-compose build
+docker-compose up -d
+
+# Alles löschen (inkl. Daten!)
+docker-compose down -v
+```
+
+---
+
+## 🌐 Production Deployment
+
+### Auf VPS/Server:
+
+```bash
+# 1. Git Clone
 git clone https://github.com/ihr-repo/kochbuch.git
 cd kochbuch
 
-# 2. .env Dateien erstellen
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
+# 2. API Key setzen (optional)
+export GOOGLE_API_KEY=IhrKey
 
-# 3. API Key eintragen
-nano backend/.env
+# 3. Starten
+docker-compose up -d
 
-# 4. Starten
+# 4. Öffnen
+# http://server-ip
+```
+
+### Mit Domain & SSL:
+
+```bash
+# Nginx Reverse Proxy
+sudo apt install nginx certbot python3-certbot-nginx
+
+# SSL einrichten
+sudo certbot --nginx -d ihre-domain.de
+```
+
+---
+
+## ⚠️ Sicherheit
+
+**Wenn Sie den API Key in `docker-compose.yml` eintragen:**
+
+⚠️ **NICHT nach Git pushen!**
+
+**Besser:**
+```bash
+# Immer als Umgebungsvariable
+export GOOGLE_API_KEY=IhrKey
 docker-compose up -d
 ```
 
-## Features
+**Oder:**
+```bash
+# In .bashrc / .zshrc
+echo 'export GOOGLE_API_KEY=IhrKey' >> ~/.bashrc
+```
 
-✅ Rezepte CRUD
-✅ Zutaten Management  
-✅ KI-Anleitungen (Gemini)
-✅ KI-Bilder (Gemini)
-✅ Filter & Suche
-✅ Vintage Design
+---
 
-## Kosten
+## 🐛 Troubleshooting
 
-- Server: $5-10/Monat
+### Backend startet nicht
+```bash
+docker-compose logs backend
+```
+
+### Frontend zeigt Fehler
+```bash
+docker-compose logs frontend
+```
+
+### MongoDB Connection Error
+```bash
+docker-compose restart mongodb
+docker-compose restart backend
+```
+
+### Ports bereits belegt
+```bash
+# In docker-compose.yml Ports ändern:
+# "8080:80"  statt "80:80"
+# "8002:8001" statt "8001:8001"
+```
+
+---
+
+## 💰 Kosten
+
+- Server: $5-10/Monat (DigitalOcean, Hetzner)
 - Google Gemini: Kostenlos (15 req/min)
-- Total: ~$5-10/Monat
+- Domain: ~$10/Jahr
+- **Total: ~$5-10/Monat**
+
+---
+
+## 📝 Lizenz
+
+Freie Nutzung für private und kommerzielle Zwecke.

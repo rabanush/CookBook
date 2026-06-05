@@ -18,11 +18,19 @@ services:
       dockerfile: ../Dockerfile.backend
     container_name: cookbook-backend
     restart: unless-stopped
-    env_file:
-      - ./backend/.env
     environment:
+      # MongoDB Connection
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=cookbook
+      - CORS_ORIGINS=*
+      
+      # Google Gemini API Key (NUR für KI-Features)
+      # Ändern Sie den Wert hier ODER setzen Sie die Umgebungsvariable:
+      # export GOOGLE_API_KEY=IhrKey && docker-compose up -d
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      
+      # Optional: API Key für Backend-Sicherheit
+      - API_KEY=
     ports:
       - "8001:8001"
     depends_on:
@@ -39,7 +47,7 @@ services:
     container_name: cookbook-frontend
     restart: unless-stopped
     ports:
-      - "80:80"  
+      - "80:80"
     depends_on:
       - backend
     networks:
