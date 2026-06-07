@@ -5,7 +5,7 @@ import { Plus, Search, Star, ChefHat, X, Edit2, Trash2, Filter, Sparkles, Upload
 import { toast } from "sonner";
 import { BrowserRouter, Routes, Route, useNavigate, useParams, Link, useLocation } from "react-router-dom";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 const API = `${BACKEND_URL}/api`;
 
 function App() {
@@ -49,10 +49,10 @@ function HomePage() {
     carbs: "",
     fat: "",
     servings: 1,
-    total_weight: "",
     ingredient_ids: [],
     ingredient_amounts: [],
-    instructions: ""
+    instructions: "",
+    image_url: null
   });
   const [generatingInstructions, setGeneratingInstructions] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
@@ -61,7 +61,8 @@ function HomePage() {
 
   // Memoized sorted ingredients for sidebar (Performance optimization)
   const sortedSidebarIngredients = useMemo(() => {
-    return ingredients.sort((a, b) => {
+    if (!Array.isArray(ingredients)) return [];
+    return [...ingredients].sort((a, b) => {
       const aRecent = recentlyUsedIngredients.indexOf(a.id);
       const bRecent = recentlyUsedIngredients.indexOf(b.id);
       
@@ -74,7 +75,8 @@ function HomePage() {
 
   // Memoized sorted ingredients for form (Performance optimization)
   const sortedFormIngredients = useMemo(() => {
-    return ingredients.sort((a, b) => {
+    if (!Array.isArray(ingredients)) return [];
+    return [...ingredients].sort((a, b) => {
       const aSelected = formData.ingredient_ids.includes(a.id);
       const bSelected = formData.ingredient_ids.includes(b.id);
       
@@ -92,56 +94,53 @@ function HomePage() {
     });
   }, [ingredients, formData.ingredient_ids, recentlyUsedIngredients]);
 
-  const fetchRecipes = useCallback(async () => {
+  const fetchRecipes = useCallback(async (currentFilters) => {
     try {
-      const response = await axios.get(`${API}/recipes`);
-      setRecipes(response.data);
+      const params = {
+        search: searchTerm,
+        minRating: currentFilters.minRating > 0 ? currentFilters.minRating : undefined,
+        max_calories: currentFilters.maxCalories || undefined,
+        min_protein: currentFilters.minProtein || undefined,
+      };
+      const response = await axios.get(`${API}/recipes`, { params });
+      if (Array.isArray(response.data)) {
+        setRecipes(response.data);
+        setFilteredRecipes(response.data);
+      } else {
+        console.error("API /recipes did not return an array:", response.data);
+        setRecipes([]);
+        setFilteredRecipes([]);
+      }
     } catch (error) {
       toast.error("Fehler beim Laden der Rezepte");
+      setRecipes([]);
+      setFilteredRecipes([]);
     }
-  }, []);
+  }, [searchTerm]);
 
   const fetchIngredients = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/ingredients`);
-      setIngredients(response.data);
+      if (Array.isArray(response.data)) {
+        setIngredients(response.data);
+      } else {
+        console.error("API /ingredients did not return an array:", response.data);
+        setIngredients([]);
+      }
     } catch (error) {
       toast.error("Fehler beim Laden der Zutaten");
+      setIngredients([]);
     }
   }, []);
 
-  const applyFilters = useCallback(() => {
-    let filtered = [...recipes];
-
-    if (searchTerm) {
-      filtered = filtered.filter(r => 
-        r.name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    if (filters.minRating > 0) {
-      filtered = filtered.filter(r => r.rating >= filters.minRating);
-    }
-
-    if (filters.maxCalories) {
-      filtered = filtered.filter(r => r.calories <= parseInt(filters.maxCalories));
-    }
-
-    if (filters.minProtein) {
-      filtered = filtered.filter(r => r.protein >= parseInt(filters.minProtein));
-    }
-
-    setFilteredRecipes(filtered);
-  }, [recipes, searchTerm, filters]);
+  // This effect now triggers re-fetching from the backend when filters change.
+  useEffect(() => {
+    fetchRecipes(filters);
+  }, [filters, searchTerm, fetchRecipes]);
 
   useEffect(() => {
-    fetchRecipes();
     fetchIngredients();
-  }, [fetchRecipes, fetchIngredients]);
-
-  useEffect(() => {
-    applyFilters();
-  }, [applyFilters]);
+  }, [fetchIngredients]);
 
   const generateInstructions = async () => {
     if (!formData.name || formData.ingredient_ids.length === 0) {
@@ -224,6 +223,25 @@ function HomePage() {
     }
 
     try {
+      let finalImageUrl = editingRecipe?.image_url || null;
+
+      // Step 1: Upload image if a new one is present
+      if (generatedImageBase64) {
+        const uploadResponse = await axios.post(`${API}/recipes/upload-base64-image`, {
+          image_base64: generatedImageBase64,
+        });
+        finalImageUrl = uploadResponse.data.image_url;
+      } else if (uploadedImageFile) {
+        // This path is now less likely but kept as a fallback
+        const fileFormData = new FormData();
+        fileFormData.append("file", uploadedImageFile);
+        // We need a temporary upload endpoint or handle this differently
+        // For now, let's assume we need a recipe ID first, which is a flaw.
+        // The new base64 endpoint is better.
+        toast.error("File upload logic needs rework, please use AI generation for now.");
+        return;
+      }
+
       const payload = {
         ...formData,
         calories: parseInt(formData.calories) || 0,
@@ -231,45 +249,18 @@ function HomePage() {
         carbs: parseInt(formData.carbs) || 0,
         fat: parseInt(formData.fat) || 0,
         servings: parseInt(formData.servings) || 1,
-        total_weight: formData.total_weight ? parseInt(formData.total_weight) : null
+        image_url: finalImageUrl
       };
 
-      let recipeId;
       if (editingRecipe) {
         await axios.put(`${API}/recipes/${editingRecipe.id}`, payload);
-        recipeId = editingRecipe.id;
         toast.success("Rezept aktualisiert");
       } else {
-        const response = await axios.post(`${API}/recipes`, payload);
-        recipeId = response.data.id;
+        await axios.post(`${API}/recipes`, payload);
         toast.success("Rezept erstellt");
       }
 
-      // Upload image (uploaded file takes priority, then generated image)
-      if (recipeId && (uploadedImageFile || generatedImageBase64)) {
-        try {
-          if (uploadedImageFile) {
-            // Upload user's file
-            const formData = new FormData();
-            formData.append("file", uploadedImageFile);
-            await axios.post(`${API}/recipes/${recipeId}/upload-image`, formData);
-          } else if (generatedImageBase64) {
-            // Upload generated image
-            const blob = await fetch(`data:image/png;base64,${generatedImageBase64}`).then(r => r.blob());
-            const file = new File([blob], "generated.png", { type: "image/png" });
-            const formData = new FormData();
-            formData.append("file", file);
-            await axios.post(`${API}/recipes/${recipeId}/upload-image`, formData);
-          }
-        } catch (err) {
-          if (process.env.NODE_ENV === 'development') {
-            console.error("Image upload failed:", err);
-          }
-          toast.error("Bild konnte nicht hochgeladen werden");
-        }
-      }
-
-      fetchRecipes();
+      fetchRecipes(filters);
       resetForm();
     } catch (error) {
       toast.error(editingRecipe ? "Fehler beim Aktualisieren" : "Fehler beim Erstellen");
@@ -285,16 +276,15 @@ function HomePage() {
       carbs: recipe.carbs,
       fat: recipe.fat,
       servings: recipe.servings || 1,
-      total_weight: recipe.total_weight || "",
       ingredient_ids: recipe.ingredients.map(i => i.ingredient_id),
       ingredient_amounts: recipe.ingredients.map(i => i.amount || ""),
-      instructions: recipe.instructions || ""
+      instructions: recipe.instructions || "",
+      image_url: recipe.image_url || null
     });
     setShowForm(true);
     // Clear any generated/uploaded images when editing
     setGeneratedImageBase64(null);
     setUploadedImageFile(null);
-    // Note: Existing recipe image (from image_url) will be preserved unless replaced
   };
 
   const handleDelete = async (recipe) => {
@@ -303,7 +293,7 @@ function HomePage() {
       await axios.delete(`${API}/recipes/${recipe.id}`);
       
       // Neu laden vom Server
-      await fetchRecipes();
+      await fetchRecipes(filters);
       
       toast.success("Rezept gelöscht");
     } catch (error) {
@@ -327,7 +317,7 @@ function HomePage() {
     try {
       await axios.put(`${API}/recipes/${recipeId}`, { rating });
       toast.success("Bewertung gespeichert");
-      fetchRecipes();
+      fetchRecipes(filters);
     } catch (error) {
       toast.error("Fehler beim Bewerten");
     }
@@ -336,8 +326,9 @@ function HomePage() {
   const resetForm = () => {
     setFormData({ 
       name: "", calories: "", protein: "", carbs: "", fat: "", 
-      servings: 1, total_weight: "",
-      ingredient_ids: [], ingredient_amounts: [], instructions: "" 
+      servings: 1,
+      ingredient_ids: [], ingredient_amounts: [], instructions: "",
+      image_url: null
     });
     setEditingRecipe(null);
     setShowForm(false);
@@ -474,13 +465,18 @@ function HomePage() {
             max_missing: 2
           }
         });
-        setMatchedRecipes(response.data);
-        setShowIngredientMatch(true);
+        if (Array.isArray(response.data)) {
+          setMatchedRecipes(response.data);
+          setShowIngredientMatch(true);
+        } else {
+          console.error("API /recipes/match did not return an array:", response.data);
+          setMatchedRecipes([]);
+        }
       } catch (error) {
-        // Error handling without console in production
         if (process.env.NODE_ENV === 'development') {
           console.error("Error filtering recipes:", error);
         }
+        setMatchedRecipes([]);
       }
     };
 
@@ -547,7 +543,7 @@ function HomePage() {
             </div>
 
             <div className="filter-group">
-              <label className="filter-label">Max. Kalorien</label>
+              <label className="filter-label">Max. Kalorien (pro Portion)</label>
               <input
                 type="number"
                 placeholder="z.B. 500"
@@ -559,7 +555,7 @@ function HomePage() {
             </div>
 
             <div className="filter-group">
-              <label className="filter-label">Min. Protein (g)</label>
+              <label className="filter-label">Min. Protein (g pro Portion)</label>
               <input
                 type="number"
                 placeholder="z.B. 20"
@@ -763,8 +759,8 @@ function RecipeForm({
     ? URL.createObjectURL(uploadedImageFile) 
     : generatedImageBase64 
     ? `data:image/png;base64,${generatedImageBase64}` 
-    : editingRecipe?.image_url 
-    ? `${API}/recipes/${editingRecipe.id}/image?k=${editingRecipe.image_url.split('/').pop()}`
+    : formData.image_url
+    ? `${BACKEND_URL}${formData.image_url}`
     : null;
 
   return (
@@ -799,7 +795,7 @@ function RecipeForm({
           </div>
 
           <div className="form-group">
-            <label>Kalorien</label>
+            <label>Kalorien (Gesamt)</label>
             <input
               type="number"
               value={formData.calories}
@@ -810,7 +806,7 @@ function RecipeForm({
           </div>
 
           <div className="form-group">
-            <label>Protein (g)</label>
+            <label>Protein (g Gesamt)</label>
             <input
               type="number"
               value={formData.protein}
@@ -821,7 +817,7 @@ function RecipeForm({
           </div>
 
           <div className="form-group">
-            <label>Kohlenhydrate (g)</label>
+            <label>Kohlenhydrate (g Gesamt)</label>
             <input
               type="number"
               value={formData.carbs}
@@ -832,7 +828,7 @@ function RecipeForm({
           </div>
 
           <div className="form-group">
-            <label>Fett (g)</label>
+            <label>Fett (g Gesamt)</label>
             <input
               type="number"
               value={formData.fat}
@@ -850,18 +846,6 @@ function RecipeForm({
               onChange={(e) => setFormData({...formData, servings: e.target.value})}
               min="1"
               data-testid="servings-input"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Gesamtgewicht (g)</label>
-            <input
-              type="number"
-              value={formData.total_weight}
-              onChange={(e) => setFormData({...formData, total_weight: e.target.value})}
-              min="0"
-              placeholder="Optional"
-              data-testid="total-weight-input"
             />
           </div>
 
@@ -1006,10 +990,10 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   const hasImage = recipe.image_url;
-  // Use image_url hash as cache key - changes only when image changes
-  const imageKey = hasImage ? recipe.image_url.split('/').pop() : '';
-  const imageUrl = hasImage ? `${API}/recipes/${recipe.id}/image?k=${imageKey}` : null;
+  const imageUrl = hasImage ? `${BACKEND_URL}${recipe.image_url}` : null;
   
+  const servings = recipe.servings && recipe.servings > 0 ? recipe.servings : 1;
+
   return (
     <div 
       className="recipe-card" 
@@ -1095,19 +1079,19 @@ function RecipeCard({ recipe, onEdit, onDelete, onCooked, onRate, showMissingIng
         <div className="recipe-nutrients" data-testid="recipe-nutrients">
           <div className="nutrient-item">
             <span className="nutrient-label">Kalorien</span>
-            <span className="nutrient-value">{recipe.calories}</span>
+            <span className="nutrient-value">{Math.round(recipe.calories / servings)}</span>
           </div>
           <div className="nutrient-item">
             <span className="nutrient-label">Protein</span>
-            <span className="nutrient-value">{recipe.protein}g</span>
+            <span className="nutrient-value">{Math.round(recipe.protein / servings)}g</span>
           </div>
           <div className="nutrient-item">
             <span className="nutrient-label">Kohlenhydrate</span>
-            <span className="nutrient-value">{recipe.carbs}g</span>
+            <span className="nutrient-value">{Math.round(recipe.carbs / servings)}g</span>
           </div>
           <div className="nutrient-item">
             <span className="nutrient-label">Fett</span>
-            <span className="nutrient-value">{recipe.fat}g</span>
+            <span className="nutrient-value">{Math.round(recipe.fat / servings)}g</span>
           </div>
         </div>
 
@@ -1226,6 +1210,7 @@ function RecipeDetailPage() {
 
   const baseServings = recipe.servings || 1;
   const servingMultiplier = servings / baseServings;
+  const imageUrl = recipe.image_url ? `${BACKEND_URL}${recipe.image_url}` : null;
 
   return (
     <div className="recipe-detail-page">
@@ -1236,9 +1221,9 @@ function RecipeDetailPage() {
         <h1 className="detail-title">{recipe.name}</h1>
       </header>
 
-      {recipe.image_url && (
+      {imageUrl && (
         <div className="detail-hero-image" data-testid="recipe-image">
-          <img src={`${API}/recipes/${id}/image?k=${recipe.image_url.split('/').pop()}`} alt={recipe.name} />
+          <img src={imageUrl} alt={recipe.name} />
         </div>
       )}
 
@@ -1276,27 +1261,6 @@ function RecipeDetailPage() {
               <div><strong>Kohlenhydrate:</strong> {Math.round(recipe.carbs * servingMultiplier)}g</div>
               <div><strong>Fett:</strong> {Math.round(recipe.fat * servingMultiplier)}g</div>
             </div>
-            
-            {/* Nährwerte pro 100g */}
-            {recipe.total_weight && recipe.total_weight > 0 && (() => {
-              const factor = 100 / recipe.total_weight;
-              const caloriesPer100 = Math.round(recipe.calories * factor);
-              const proteinPer100 = Math.round(recipe.protein * factor * 10) / 10;
-              const carbsPer100 = Math.round(recipe.carbs * factor * 10) / 10;
-              const fatPer100 = Math.round(recipe.fat * factor * 10) / 10;
-              
-              return (
-                <div className="nutrients-per-100">
-                  <h4>Nährwerte pro 100g:</h4>
-                  <div className="nutrients-grid-small">
-                    <div><strong>Kalorien:</strong> {caloriesPer100}</div>
-                    <div><strong>Protein:</strong> {proteinPer100}g</div>
-                    <div><strong>Kohlenhydrate:</strong> {carbsPer100}g</div>
-                    <div><strong>Fett:</strong> {fatPer100}g</div>
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         </div>
 

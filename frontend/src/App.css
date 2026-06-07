@@ -871,6 +871,50 @@
   padding-bottom: 0.75rem;
 }
 
+.servings-control {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px dashed #c4b5a0;
+  padding-bottom: 1rem;
+}
+
+.servings-control h2 {
+  margin-bottom: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.servings-buttons {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.servings-buttons button {
+  background: #8b6f47;
+  color: white;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.servings-buttons button:hover {
+  background: #6f5a38;
+}
+
+.servings-buttons span {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
 .ingredients-checklist {
   display: flex;
   flex-direction: column;

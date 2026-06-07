@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Header, Request, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request, UploadFile, File, Body
 from fastapi.responses import JSONResponse, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -34,6 +34,8 @@ if GOOGLE_API_KEY:
 
 # File storage directory
 UPLOAD_DIR = Path("/app/uploads")
+if not UPLOAD_DIR.exists():
+    UPLOAD_DIR = Path("uploads") # fallback for local testing
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Create the main app
@@ -98,6 +100,7 @@ class RecipeCreate(BaseModel):
     ingredient_ids: List[str] = []
     ingredient_amounts: List[str] = []  # Parallel array to ingredient_ids
     instructions: str = ""  # New: cooking instructions
+    image_url: Optional[str] = None # Added back so frontend can pass the filename
 
 class RecipeUpdate(BaseModel):
     name: Optional[str] = None
@@ -111,6 +114,7 @@ class RecipeUpdate(BaseModel):
     ingredient_ids: Optional[List[str]] = None
     ingredient_amounts: Optional[List[str]] = None
     instructions: Optional[str] = None
+    image_url: Optional[str] = None
 
 class Recipe(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -146,6 +150,9 @@ class GenerateInstructionsRequest(BaseModel):
 
 class GenerateImageRequest(BaseModel):
     recipe_name: str
+
+class UploadBase64ImageRequest(BaseModel):
+    image_base64: str
 
 # ============ INGREDIENTS ENDPOINTS ============
 
@@ -205,7 +212,8 @@ async def create_recipe(recipe: RecipeCreate):
         fat=recipe.fat,
         servings=recipe.servings,
         ingredients=ingredients,
-        instructions=recipe.instructions
+        instructions=recipe.instructions,
+        image_url=recipe.image_url
     )
     
     doc = recipe_obj.model_dump()
@@ -225,11 +233,7 @@ async def get_recipes(
     if search:
         query["name"] = {"$regex": search, "$options": "i"}
     
-    if max_calories is not None:
-        query["calories"] = {"$lte": max_calories}
-    
-    if min_protein is not None:
-        query["protein"] = {"$gte": min_protein}
+    # Nutritional filters are now handled in python
     
     if min_rating is not None:
         query["rating"] = {"$gte": min_rating}
@@ -238,8 +242,35 @@ async def get_recipes(
         ing_list = ingredient_ids.split(",")
         query["ingredients.ingredient_id"] = {"$all": ing_list}
     
-    recipes = await db.recipes.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    return recipes
+    recipes_from_db = await db.recipes.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Post-filter in Python for nutritional values per serving
+    if max_calories is None and min_protein is None:
+        return recipes_from_db
+
+    filtered_recipes = []
+    for r in recipes_from_db:
+        servings = r.get("servings")
+        # If servings is missing, is 0, or is not a positive number, default to 1
+        if not isinstance(servings, (int, float)) or servings <= 0:
+            servings = 1
+            
+        passes_filter = True
+        
+        if max_calories is not None:
+            calories_per_serving = r.get("calories", 0) / servings
+            if calories_per_serving > max_calories:
+                passes_filter = False
+        
+        if min_protein is not None:
+            protein_per_serving = r.get("protein", 0) / servings
+            if protein_per_serving < min_protein:
+                passes_filter = False
+        
+        if passes_filter:
+            filtered_recipes.append(r)
+            
+    return filtered_recipes
 
 @api_router.get("/recipes/random")
 async def get_random_recipes(count: int = 6):
@@ -373,8 +404,13 @@ async def generate_instructions(request: GenerateInstructionsRequest):
         
         prompt = f"""Erstelle eine kurze, sachliche Kochanleitung für "{request.recipe_name}".
 
-WICHTIG: Verwende NUR diese Zutaten:
+WICHTIG: Verwende die Zutaten aus dieser Liste:
 {ing_text}
+
+ABER VERWENDE IN DER ANLEITUNG KEINE GENAUEN MENGENANGABEN! 
+Schreibe "Füge die Milch hinzu" anstatt "Füge 150ml Milch hinzu".
+Schreibe "Schneide die Tomaten" anstatt "Schneide 2 Tomaten".
+Die Benutzer sehen die Mengen separat in der Zutatenliste.
 
 AUSNAHMEN (darfst du immer verwenden, auch wenn nicht aufgelistet):
 - Wasser
@@ -389,15 +425,16 @@ Wenn eine solche Zutat fehlt, beginne die Anleitung mit:
 "⚠️ HINWEIS: Für dieses Gericht wird [ZUTAT] benötigt, die nicht in der Zutatenliste aufgeführt ist."
 
 Anforderungen:
+- Keine genauen Mengenangaben (weder g, ml, Stück, etc.)
 - Kurze, einfache Sätze (max. 15 Wörter pro Satz)
 - Keine Schachtelsätze oder Fachbegriffe
 - Direkte Anweisungen im Aktiv
-- Genaue Kochzeiten und Temperaturen
+- Genaue Kochzeiten und Temperaturen darfst (und sollst) du angeben! (z.B. "10 Minuten kochen")
 - Erwähne KEINE zusätzlichen Zutaten außer den Ausnahmen und dem Hinweis zu fehlenden Hauptzutaten
 - 2-3 kurze Absätze
 
 Beispiel guter Stil:
-"Die Zutaten in einer Pfanne mit Olivenöl anbraten. 10 Minuten bei mittlerer Hitze garen. Mit Salz, Pfeffer und Paprika abschmecken."
+"Die Zwiebeln in einer Pfanne mit Olivenöl anbraten. Die Tomaten hinzugeben und 10 Minuten bei mittlerer Hitze garen. Mit Salz, Pfeffer und Paprika abschmecken."
 
 Schreibe ohne Nummerierung als fortlaufenden Text."""
 
@@ -487,83 +524,29 @@ async def generate_recipe_image(request: GenerateImageRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fehler bei der Bildgenerierung: {str(e)}")
 
-#@api_router.post("/recipes/generate-image")
-#async def generate_recipe_image(request: GenerateImageRequest):
-#    import urllib.request
-#    import urllib.error
-#    import json
-#    import asyncio
-#
-#    if not GOOGLE_API_KEY:
-#        raise HTTPException(status_code=500, detail="Google API Key fehlt")
-#
-#    try:
-#        prompt = (
-#            f"Professional food photography of {request.recipe_name}. "
-#	    "Widescreen format, landscape orientation, 16:9 aspect ratio. "
-#            "Warm and inviting atmosphere, soft natural lighting, "
-#            "presented on a rustic wooden surface or vintage tablecloth. "
-#            "Lightly nostalgic and timeless look, homemade and appetizing appearance. "
-#            "Prefer earthy, warm color tones such as beige, warm brown, and soft yellow. "
-#            "Style: Vintage aesthetic, rustic presentation, warm tones, homemade comfort food, high resolution."
-#        )
-#
-#        model = "gemini-2.5-flash-image"
-#        url = (
-#            f"https://generativelanguage.googleapis.com/v1beta/models/"
-#            f"{model}:generateContent?key={GOOGLE_API_KEY}"  # ← Variable genutzt
-#        )
-#
-#        payload = {
-#            "contents": [
-#                {
-#                    "parts": [
-#                        {"text": prompt}
-#                    ]
-#                }
-#            ],
-#            "generationConfig": {
-#                "responseModalities": ["IMAGE"]
-#            }
-#        }
-#
-#        req = urllib.request.Request(
-#            url,
-#            data=json.dumps(payload).encode("utf-8"),
-#            headers={"Content-Type": "application/json"},
-#            method="POST"
-#        )
-#
-#        response = await asyncio.to_thread(urllib.request.urlopen, req)
-#        response_data = json.loads(response.read().decode("utf-8"))
-#
-#        candidates = response_data.get("candidates", [])
-#        if candidates:
-#            parts = candidates[0].get("content", {}).get("parts", [])
-#            for part in parts:
-#                if "inlineData" in part:
-#                    b64_image = part["inlineData"].get("data")
-#                    if b64_image:
-#                        return {"image_base64": b64_image}
-#
-#        raise HTTPException(
-#            status_code=500,
-#            detail="Gemini API lieferte kein Bild zurück.")
-#
-#    except urllib.error.HTTPError as e:
-#        error_body = e.read().decode("utf-8")
-#        raise HTTPException(
-#            status_code=500,
-#            detail=f"Google API Fehler: {error_body}"
-#        )
-#    except Exception as e:
-#        raise HTTPException(
-#            status_code=500,
-#            detail=f"Fehler bei der Bildgenerierung: {str(e)}"
-#        )
-
 
 # ============ IMAGE UPLOAD ============
+
+@api_router.post("/recipes/upload-base64-image")
+async def upload_base64_image(request: UploadBase64ImageRequest):
+    """Upload base64 image and return a permanent URL"""
+    try:
+        # Generate a unique ID for the new image
+        image_id = str(uuid.uuid4())
+        
+        # Decode base64
+        image_data = base64.b64decode(request.image_base64)
+        
+        # Save to local filesystem
+        save_file(image_id, image_data, "image/jpeg")
+        
+        image_url = f"/api/recipes/images/{image_id}"
+        return {"message": "Bild hochgeladen", "image_url": image_url}
+        
+    except Exception as e:
+        logging.error(f"Base64 Upload error: {e}")
+        raise HTTPException(status_code=500, detail="Fehler beim Speichern des Bildes")
+
 
 @api_router.post("/recipes/{recipe_id}/upload-image")
 async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
@@ -584,7 +567,7 @@ async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
         save_file(recipe_id, content, file.content_type)
         
         # Update recipe with image URL
-        image_url = f"/uploads/{recipe_id}.jpg"
+        image_url = f"/api/recipes/images/{recipe_id}"
         await db.recipes.update_one(
             {"id": recipe_id},
             {"$set": {"image_url": image_url, "updated_at": datetime.now(timezone.utc).isoformat()}}
@@ -597,10 +580,22 @@ async def upload_recipe_image(recipe_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Fehler beim Hochladen")
 
 @api_router.get("/recipes/{recipe_id}/image")
-async def get_recipe_image(recipe_id: str):
-    """Get recipe image"""
+async def get_recipe_image_legacy(recipe_id: str):
+    """Get recipe image (legacy path)"""
     try:
         data, content_type = load_file(recipe_id)
+        return Response(content=data, media_type=content_type)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Bild nicht gefunden")
+    except Exception as e:
+        logging.error(f"Image retrieval error: {e}")
+        raise HTTPException(status_code=500, detail="Fehler beim Laden des Bildes")
+
+@api_router.get("/recipes/images/{image_id}")
+async def get_recipe_image_by_id(image_id: str):
+    """Get recipe image by UUID"""
+    try:
+        data, content_type = load_file(image_id)
         return Response(content=data, media_type=content_type)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Bild nicht gefunden")
