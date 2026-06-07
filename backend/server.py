@@ -94,6 +94,7 @@ class RecipeCreate(BaseModel):
     protein: int = Field(ge=0)
     carbs: int = Field(ge=0)
     fat: int = Field(ge=0)
+    servings: int = Field(default=1, ge=1)
     ingredient_ids: List[str] = []
     ingredient_amounts: List[str] = []  # Parallel array to ingredient_ids
     instructions: str = ""  # New: cooking instructions
@@ -105,6 +106,8 @@ class RecipeUpdate(BaseModel):
     carbs: Optional[int] = Field(default=None, ge=0)
     fat: Optional[int] = Field(default=None, ge=0)
     rating: Optional[int] = Field(default=None, ge=0, le=5)
+    servings: Optional[int] = Field(default=None, ge=1)
+    total_weight: Optional[int] = Field(default=None, ge=0)
     ingredient_ids: Optional[List[str]] = None
     ingredient_amounts: Optional[List[str]] = None
     instructions: Optional[str] = None
@@ -118,6 +121,8 @@ class Recipe(BaseModel):
     carbs: int
     fat: int
     rating: int = 0
+    servings: int = 1
+    total_weight: Optional[int] = None
     ingredients: List[RecipeIngredient] = []
     instructions: str = ""
     image_url: Optional[str] = None  # New: URL or storage path for recipe image
@@ -198,6 +203,7 @@ async def create_recipe(recipe: RecipeCreate):
         protein=recipe.protein,
         carbs=recipe.carbs,
         fat=recipe.fat,
+        servings=recipe.servings,
         ingredients=ingredients,
         instructions=recipe.instructions
     )

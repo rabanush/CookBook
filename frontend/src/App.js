@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import "@/App.css";
 import axios from "axios";
-import { Plus, Search, Star, ChefHat, X, Edit2, Trash2, Filter, Sparkles, Upload, Camera, ArrowLeft, Shuffle } from "lucide-react";
+import { Plus, Search, Star, ChefHat, X, Edit2, Trash2, Filter, Sparkles, Upload, Camera, ArrowLeft, Shuffle, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { BrowserRouter, Routes, Route, useNavigate, useParams, Link, useLocation } from "react-router-dom";
 
@@ -48,6 +48,8 @@ function HomePage() {
     protein: "",
     carbs: "",
     fat: "",
+    servings: 1,
+    total_weight: "",
     ingredient_ids: [],
     ingredient_amounts: [],
     instructions: ""
@@ -227,7 +229,9 @@ function HomePage() {
         calories: parseInt(formData.calories) || 0,
         protein: parseInt(formData.protein) || 0,
         carbs: parseInt(formData.carbs) || 0,
-        fat: parseInt(formData.fat) || 0
+        fat: parseInt(formData.fat) || 0,
+        servings: parseInt(formData.servings) || 1,
+        total_weight: formData.total_weight ? parseInt(formData.total_weight) : null
       };
 
       let recipeId;
@@ -280,6 +284,8 @@ function HomePage() {
       protein: recipe.protein,
       carbs: recipe.carbs,
       fat: recipe.fat,
+      servings: recipe.servings || 1,
+      total_weight: recipe.total_weight || "",
       ingredient_ids: recipe.ingredients.map(i => i.ingredient_id),
       ingredient_amounts: recipe.ingredients.map(i => i.amount || ""),
       instructions: recipe.instructions || ""
@@ -330,6 +336,7 @@ function HomePage() {
   const resetForm = () => {
     setFormData({ 
       name: "", calories: "", protein: "", carbs: "", fat: "", 
+      servings: 1, total_weight: "",
       ingredient_ids: [], ingredient_amounts: [], instructions: "" 
     });
     setEditingRecipe(null);
@@ -835,6 +842,29 @@ function RecipeForm({
             />
           </div>
 
+          <div className="form-group">
+            <label>Portionen</label>
+            <input
+              type="number"
+              value={formData.servings}
+              onChange={(e) => setFormData({...formData, servings: e.target.value})}
+              min="1"
+              data-testid="servings-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Gesamtgewicht (g)</label>
+            <input
+              type="number"
+              value={formData.total_weight}
+              onChange={(e) => setFormData({...formData, total_weight: e.target.value})}
+              min="0"
+              placeholder="Optional"
+              data-testid="total-weight-input"
+            />
+          </div>
+
           <div className="form-group full-width">
             <label>Zutaten</label>
             <div className="ingredient-search-wrapper">
@@ -1125,11 +1155,13 @@ function RecipeDetailPage() {
   const [recipe, setRecipe] = useState(null);
   const [checkedIngredients, setCheckedIngredients] = useState({});
   const [loading, setLoading] = useState(true);
+  const [servings, setServings] = useState(1);
 
   const fetchRecipe = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/recipes/${id}`);
       setRecipe(response.data);
+      setServings(response.data.servings || 1);
       setLoading(false);
     } catch (error) {
       toast.error("Rezept nicht gefunden");
@@ -1148,6 +1180,42 @@ function RecipeDetailPage() {
     }));
   };
 
+  const scaleIngredient = (amount, baseServings, targetServings) => {
+    if (!amount) return "";
+
+    // Regex to find a number (integer or decimal) at the beginning of the string.
+    const match = String(amount).match(/^(\d[\d,.]*)(\s*.*)/);
+
+    if (!match) {
+      // If no number is found (e.g., "a pinch of salt"), return the original string.
+      return amount;
+    }
+
+    const numericStr = match[1].replace(',', '.'); // Normalize comma to dot for parseFloat
+    const unitStr = match[2].trim(); // The rest of the string is the unit
+
+    const originalNum = parseFloat(numericStr);
+    if (isNaN(originalNum)) {
+      return amount; // Safeguard if the numeric part is not a valid number
+    }
+
+    const scaledNum = (originalNum / baseServings) * targetServings;
+
+    let scaledNumStr;
+    // Use one decimal place for non-integers, zero for integers.
+    if (scaledNum % 1 !== 0) {
+      scaledNumStr = scaledNum.toFixed(1).replace('.', ',');
+    } else {
+      scaledNumStr = String(scaledNum);
+    }
+
+    // Combine the scaled number with its unit.
+    if (unitStr) {
+      return `${scaledNumStr} ${unitStr}`;
+    }
+    return scaledNumStr;
+  };
+
   if (loading) {
     return <div className="loading">Lädt...</div>;
   }
@@ -1155,6 +1223,9 @@ function RecipeDetailPage() {
   if (!recipe) {
     return null;
   }
+
+  const baseServings = recipe.servings || 1;
+  const servingMultiplier = servings / baseServings;
 
   return (
     <div className="recipe-detail-page">
@@ -1173,7 +1244,14 @@ function RecipeDetailPage() {
 
       <div className="detail-content">
         <div className="detail-section">
-          <h2>Zutaten</h2>
+          <div className="servings-control">
+            <h2>Zutaten für</h2>
+            <div className="servings-buttons">
+              <button onClick={() => setServings(Math.max(1, servings - 1))}><Minus size={16} /></button>
+              <span>{servings} Portion(en)</span>
+              <button onClick={() => setServings(servings + 1)}><Plus size={16} /></button>
+            </div>
+          </div>
           <div className="ingredients-checklist" data-testid="ingredients-list">
             {recipe.ingredients.map((ing) => (
               <label key={ing.ingredient_id} className="ingredient-check-item">
@@ -1184,44 +1262,40 @@ function RecipeDetailPage() {
                   data-testid={`ingredient-check-${ing.ingredient_id}`}
                 />
                 <span className={checkedIngredients[ing.ingredient_id] ? 'checked' : ''}>
-                  {ing.amount && `${ing.amount} `}{ing.ingredient_name}
+                  {scaleIngredient(ing.amount, baseServings, servings) && `${scaleIngredient(ing.amount, baseServings, servings)} `}{ing.ingredient_name}
                 </span>
               </label>
             ))}
           </div>
 
           <div className="nutrients-detail">
-            <h3>Nährwerte</h3>
+            <h3>Nährwerte (für {servings} Portionen)</h3>
             <div className="nutrients-grid">
-              <div><strong>Kalorien:</strong> {recipe.calories}</div>
-              <div><strong>Protein:</strong> {recipe.protein}g</div>
-              <div><strong>Kohlenhydrate:</strong> {recipe.carbs}g</div>
-              <div><strong>Fett:</strong> {recipe.fat}g</div>
+              <div><strong>Kalorien:</strong> {Math.round(recipe.calories * servingMultiplier)}</div>
+              <div><strong>Protein:</strong> {Math.round(recipe.protein * servingMultiplier)}g</div>
+              <div><strong>Kohlenhydrate:</strong> {Math.round(recipe.carbs * servingMultiplier)}g</div>
+              <div><strong>Fett:</strong> {Math.round(recipe.fat * servingMultiplier)}g</div>
             </div>
             
             {/* Nährwerte pro 100g */}
-            {(() => {
-              const totalGrams = recipe.protein + recipe.carbs + recipe.fat;
-              if (totalGrams > 0) {
-                const factor = 100 / totalGrams;
-                const caloriesPer100 = Math.round(recipe.calories * factor);
-                const proteinPer100 = Math.round(recipe.protein * factor * 10) / 10;
-                const carbsPer100 = Math.round(recipe.carbs * factor * 10) / 10;
-                const fatPer100 = Math.round(recipe.fat * factor * 10) / 10;
-                
-                return (
-                  <div className="nutrients-per-100">
-                    <h4>Nährwerte pro 100g:</h4>
-                    <div className="nutrients-grid-small">
-                      <div><strong>Kalorien:</strong> {caloriesPer100}</div>
-                      <div><strong>Protein:</strong> {proteinPer100}g</div>
-                      <div><strong>Kohlenhydrate:</strong> {carbsPer100}g</div>
-                      <div><strong>Fett:</strong> {fatPer100}g</div>
-                    </div>
+            {recipe.total_weight && recipe.total_weight > 0 && (() => {
+              const factor = 100 / recipe.total_weight;
+              const caloriesPer100 = Math.round(recipe.calories * factor);
+              const proteinPer100 = Math.round(recipe.protein * factor * 10) / 10;
+              const carbsPer100 = Math.round(recipe.carbs * factor * 10) / 10;
+              const fatPer100 = Math.round(recipe.fat * factor * 10) / 10;
+              
+              return (
+                <div className="nutrients-per-100">
+                  <h4>Nährwerte pro 100g:</h4>
+                  <div className="nutrients-grid-small">
+                    <div><strong>Kalorien:</strong> {caloriesPer100}</div>
+                    <div><strong>Protein:</strong> {proteinPer100}g</div>
+                    <div><strong>Kohlenhydrate:</strong> {carbsPer100}g</div>
+                    <div><strong>Fett:</strong> {fatPer100}g</div>
                   </div>
-                );
-              }
-              return null;
+                </div>
+              );
             })()}
           </div>
         </div>
