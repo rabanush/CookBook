@@ -1166,38 +1166,22 @@ function RecipeDetailPage() {
 
   const scaleIngredient = (amount, baseServings, targetServings) => {
     if (!amount) return "";
-
-    // Regex to find a number (integer or decimal) at the beginning of the string.
-    const match = String(amount).match(/^(\d[\d,.]*)(\s*.*)/);
-
-    if (!match) {
-      // If no number is found (e.g., "a pinch of salt"), return the original string.
-      return amount;
-    }
-
-    const numericStr = match[1].replace(',', '.'); // Normalize comma to dot for parseFloat
-    const unitStr = match[2].trim(); // The rest of the string is the unit
-
-    const originalNum = parseFloat(numericStr);
-    if (isNaN(originalNum)) {
-      return amount; // Safeguard if the numeric part is not a valid number
-    }
-
-    const scaledNum = (originalNum / baseServings) * targetServings;
-
-    let scaledNumStr;
-    // Use one decimal place for non-integers, zero for integers.
-    if (scaledNum % 1 !== 0) {
-      scaledNumStr = scaledNum.toFixed(1).replace('.', ',');
-    } else {
-      scaledNumStr = String(scaledNum);
-    }
-
-    // Combine the scaled number with its unit.
-    if (unitStr) {
-      return `${scaledNumStr} ${unitStr}`;
-    }
-    return scaledNumStr;
+    
+    // Regular expression to match all numbers (including decimals/comma)
+    return String(amount).replace(/(\d+[\d,.]*)/g, (match) => {
+      const numericStr = match.replace(',', '.');
+      const originalNum = parseFloat(numericStr);
+      
+      if (isNaN(originalNum)) return match;
+      
+      const scaledNum = (originalNum / baseServings) * targetServings;
+      
+      if (scaledNum % 1 !== 0) {
+        return scaledNum.toFixed(1).replace('.', ',');
+      } else {
+        return String(scaledNum);
+      }
+    });
   };
 
   if (loading) {
